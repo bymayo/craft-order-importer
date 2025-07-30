@@ -1,0 +1,41 @@
+{
+  "name": "bymayo/order-importer",
+  "description": "Imports Orders via Feed Me Plugin",
+  "type": "craft-plugin",
+  "license": "proprietary",
+  "support": {
+    "email": "jason@bymayo.co.u",
+    "issues": "https://github.com/bymayo/craft-order-importer/issues?state=open",
+    "source": "https://github.com/bymayo/craft-order-importer",
+    "docs": "https://github.com/bymayo/craft-order-importer",
+    "rss": "https://github.com/bymayo/craft-order-importer/releases.atom"
+  },
+  "require": {
+    "php": ">=8.2",
+    "craftcms/cms": "^5.0.0"
+  },
+  "require-dev": {
+    "craftcms/phpstan": "dev-main"
+  },
+  "autoload": {
+    "psr-4": {
+      "bymayo\\craftorderimporter\\": "src/"
+    }
+  },
+  "extra": {
+    "handle": "order-importer",
+    "name": "Order Importer",
+    "developer": "Jason Mayo",
+    "documentationUrl": "https://github.com/bymayo/craft-order-importer"
+  },
+  "config": {
+    "sort-packages": true,
+    "platform": {
+      "php": "8.2"
+    },
+    "allow-plugins": {
+      "yiisoft/yii2-composer": true,
+      "craftcms/plugin-installer": true
+    }
+  }
+}
