@@ -33,7 +33,7 @@ This plugin requires Feed Me to function. All Product/Purchasables must be creat
 7. Map your fields to the feed elements and hit `Save & Continue` again. See [Mapping](#mapping) for some important notes.
 8. Hit `Process it now` and you should see your orders imported into the CMS.
 
-# Feed Types
+## Feed Types
 
 We recommend using only XML and JSON file types for your feeds due to how you need to structure the feed, specifically the `Line Items` and `Address` fields. Below are some examples of how to structure your feed:
 
@@ -208,12 +208,27 @@ We recommend using only XML and JSON file types for your feeds due to how you ne
 
 There are some examples of how to create XML feeds in the repository under `examples/` if you're importing from a Craft 4 or 5 project with the variables already set up.
 
-# Mapping 
+## Mapping 
+
+1. It's important that Products/Purchasables are created in the CMS before importing orders to use the `Purchasable ID` fields correctly.
+2. Similarly, it's important that Users/Customers are created in the CMS before importing orders to use the `Customer ID` fields correctly. But the plugin will create any Users/Customers that don't exist.
+3. Make sure you structure your `Line Items` as an Array, so it can loop through the array and create the line items.
+4. Make sure you structure your `Transactions` as an Array, so it can loop through the array and create the transactions.
+5. `Billing Address Fields` and `Shipping Address Fields` need to also be setup line an Array.
+6. Line Item `Options` need to be setup as a valid JSON string, or not imported at all.
+7. There are no "Total" fields to include in your feeds, due to the way Craft Commerce calculates all totals.
 
 ## Caveats
+
+- Currently you can only add one Transaction per order.
+- Currently multiple Shipping, Tax and Discount adjusters are not supported.
 
 ## Support
 
 If you have any issues (Surely not!) then I'll aim to reply to these as soon as possible. If it's a site-breaking-oh-no-what-has-happened moment, then hit me up on the Craft CMS Discord - @bymayo
 
 ## Roadmap
+
+- Add support multiple Shipping, Tax and Discount adjusters.
+- Add support multiple Transactions per order.
+- Add support for Status History
