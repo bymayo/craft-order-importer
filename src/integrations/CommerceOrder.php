@@ -3,52 +3,32 @@
 namespace bymayo\craftorderimporter\integrations;
 
 use bymayo\craftorderimporter\Plugin as OrderImporter;
+use bymayo\craftorderimporter\elements\CommerceOrder as CommerceOrderElement;
 
-use Cake\Utility\Hash;
-use Carbon\Carbon;
 use Craft;
 use craft\base\ElementInterface;
-use bymayo\craftorderimporter\elements\CommerceOrder as CommerceOrderElement;
-use craft\commerce\elements\Variant as VariantElement;
-use craft\commerce\Plugin as Commerce;
 use craft\db\Query;
+
+use craft\commerce\elements;
+use craft\commerce\elements\Order;
+use craft\commerce\models\LineItem;
+use craft\commerce\Plugin as Commerce;
+use craft\commerce\records\Transaction as TransactionRecord;
+
 use craft\feedme\base\Element;
 use craft\feedme\events\FeedProcessEvent;
-use craft\feedme\helpers\BaseHelper;
 use craft\feedme\helpers\DataHelper;
 use craft\feedme\helpers\DateHelper;
 use craft\feedme\Plugin;
 use craft\feedme\services\Process;
-use craft\feedme\events\ElementEvent;
-use craft\fields\Matrix;
-use craft\fields\Table;
-use craft\helpers\Json;
+
+use yii\base\Event;
+
+use Cake\Utility\Hash;
+use Carbon\Carbon;
+
 use DateTime;
 use Exception;
-use yii\base\Event;
-use craft\helpers\StringHelper;
-
-use craft\commerce\elements;
-use craft\helpers\Db;
-
-use craft\commerce\models\Transaction;
-use craft\commerce\records\Transaction as TransactionRecord;
-use craft\commerce\elements\Order;
-
-use craft\commerce\errors\CurrencyException;
-use craft\commerce\errors\OrderStatusException;
-use craft\commerce\errors\TransactionException;
-use craft\commerce\events\TransactionEvent;
-use craft\commerce\helpers\Currency;
-
-use craft\commerce\errors\PaymentSourceException;
-use craft\commerce\models\PaymentSource;
-use craft\commerce\records\PaymentSource as PaymentSourceRecord;
-
-use craft\commerce\records\Order as OrderRecord;
-use craft\commerce\records\LineItem as LineItemRecord;
-use craft\commerce\models\LineItem;
-use craft\commerce\records\Purchasable as PurchasableRecord;
 
 /**
  *

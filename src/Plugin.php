@@ -2,31 +2,22 @@
 
 namespace bymayo\craftorderimporter;
 
-use craft\web\twig\variables\CraftVariable;
-use Craft;
-use craft\base\Model;
-use craft\feedme\events\RegisterFeedMeElementsEvent;
-use craft\feedme\services\Elements;
-use yii\base\Event;
 use bymayo\craftorderimporter\integrations\CommerceOrder;
 
-use craft\feedme\base\Element;
-use craft\feedme\events\ElementEvent;
-
-use craft\feedme\events\FeedProcessEvent;
-use craft\feedme\services\Process;
-use craft\feedme\helpers\DataHelper;
-use Cake\Utility\Hash;
-
+use Craft;
+use craft\base\Plugin as BasePlugin;
 use craft\helpers\FileHelper;
 
-use craft\base\Plugin as BasePlugin;
+use craft\feedme\events\RegisterFeedMeElementsEvent;
+use craft\feedme\services\Elements;
+
+use yii\base\Event;
 
 /**
  * Order Importer plugin
  *
  * @method static Plugin getInstance()
- * @author Jason Mayo <jason@bymayo.co.u>
+ * @author Jason Mayo <jason@bymayo.co.uk>
  * @copyright Jason Mayo
  * @license https://craftcms.github.io/license/ Craft License
  */
