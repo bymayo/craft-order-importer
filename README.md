@@ -16,7 +16,7 @@ Order Importer is a Craft CMS plugin that uses [Feed Me](https://plugins.craftcm
 ## Requirements
 
 - Craft CMS 5.x
-- Feed Me 3.x
+- Feed Me 6.x
 - PHP 8.2
 - MySQL (No PostgreSQL support)
 
