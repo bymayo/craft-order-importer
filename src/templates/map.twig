@@ -1,109 +1,108 @@
 {% import '_includes/forms' as forms %}
 {% import 'feed-me/_macros' as feedMeMacro %}
 
-
 {% set orderStatusOptions = [] %}
 {% for orderStatus in craft.commerce.orderStatuses.allOrderStatuses %}
     {% set orderStatusOptions = orderStatusOptions | merge([{ label: orderStatus.name, value: orderStatus.id }]) %}
 {% endfor %}
 
-{% set Orderfields = [   
+{% set orderFields = [   
+    {
+        name: 'Customer ID',
+        handle: 'customerId',
+        required: true,
+        instructions: 'If no customer ID is provided, a new customer will be created from the "Order Email Address" field.'|t('feed-me'),
+        default: {
+            type: 'text',
+        }
+    },
+    {
+        name: 'Order Email Address',
+        handle: 'email',
+        required: true,
+        default: false,
+    },
+    {
+        name: 'Order Status',
+        handle: 'orderStatusId',
+        required: true,
+        instructions: 'Accepts handle or ID.'|t('feed-me'),
+        default: {
+            type: 'select',
+            options: orderStatusOptions|sort((a, b) => a.label <=> b.label)
+        }
+    },
+    {
+        name: 'Number',
+        handle: 'number',
+        required: true,
+        default: false,
+    },
+    {
+        name: 'Reference',
+        handle: 'reference',
+        required: true,
+        default: false,
+    },
+    {
+        name: 'Is Completed',
+        handle: 'isCompleted',
+        required: true,
+        default: {
+            type: 'select',
+            options: [
+                { label: 'Complete', value: '1' },
+                { label: 'Incomplete', value: '0' }
+            ],
+        },
+    },
+    {
+        name: 'Date Ordered',
+        handle: 'dateOrdered',
+        required: true,
+        default: {
+            type: 'dateTime',
+        },
+    },
+    {
+        name: 'Date Paid',
+        handle: 'datePaid',
+        required: true,
+        default: {
+            type: 'dateTime',
+        },
+    },
+    {
+        name: 'Date Authorized',
+        handle: 'dateAuthorized',
+        required: true,
+        default: {
+            type: 'dateTime',
+        },
+    },
+    {
+        name: 'Currency',
+        handle: 'currency',
+        default: {
+            type: 'text',
+        },
+    },
+    {
+        name: 'Payment Currency',
+        handle: 'paymentCurrency',
+        default: {
+            type: 'text',
+        },
+    },
+    {
+        name: 'Order Language',
+        handle: 'orderLanguage',
+        default: {
+            type: 'text',
+        },
+    }
+] %}
 
-{
-    name: 'Customer ID',
-    handle: 'customerId',
-    required: true,
-    instructions: 'If no customer ID is provided, a new customer will be created from the "Order Email Address" field.'|t('feed-me'),
-    default: {
-        type: 'text',
-    }
-},
-{
-    name: 'Order Email Address',
-    handle: 'email',
-    required: true,
-    default: false,
-},
-{
-    name: 'Order Status',
-    handle: 'orderStatusId',
-    required: true,
-    instructions: 'Accepts handle or ID.'|t('feed-me'),
-    default: {
-        type: 'select',
-        options: orderStatusOptions|sort((a, b) => a.label <=> b.label)
-    }
-},
-{
-    name: 'Number',
-    handle: 'number',
-    required: true,
-    default: false,
-},
-{
-    name: 'Reference',
-    handle: 'reference',
-    required: true,
-    default: false,
-},
-{
-    name: 'Is Completed',
-    handle: 'isCompleted',
-    required: true,
-    default: {
-        type: 'select',
-        options: [
-            { label: 'Complete', value: '1' },
-            { label: 'Incomplete', value: '0' }
-        ],
-    },
-},
-{
-    name: 'Date Ordered',
-    handle: 'dateOrdered',
-    required: true,
-    default: {
-        type: 'dateTime',
-    },
-},
-{
-    name: 'Date Paid',
-    handle: 'datePaid',
-    required: true,
-    default: {
-        type: 'dateTime',
-    },
-},
-{
-    name: 'Date Authorized',
-    handle: 'dateAuthorized',
-    required: true,
-    default: {
-        type: 'dateTime',
-    },
-},
-{
-    name: 'Currency',
-    handle: 'currency',
-    default: {
-        type: 'text',
-    },
-},
-{
-    name: 'Payment Currency',
-    handle: 'paymentCurrency',
-    default: {
-        type: 'text',
-    },
-},
-{
-    name: 'Order Language',
-    handle: 'orderLanguage',
-    default: {
-        type: 'text',
-    },
-}
- ] %}
 <h2>{{ 'Order Fields'|t('feed-me') }}</h2>
 
 <table class="feedme-mapping data fullwidth collapsible">
@@ -113,11 +112,12 @@
         <th>{{ 'Default Value'|t('feed-me') }}</th>
     </thead>
     <tbody>
-        {% for field in Orderfields %}
+        {% for field in orderFields %}
+
             {% set template = field.type ?? 'default' %}
             {% set variables = field|merge({ feed: feed, feedData: feedData, attribute: true }) %}
-
             {% include 'feed-me/_includes/fields/' ~ template ignore missing with variables only %}
+
         {% endfor %}
     </tbody>
 </table>
@@ -210,9 +210,11 @@
     </thead>
     <tbody>
         {% for field in billingAddressFields %}
+
             {% set template = field.type ?? 'default' %}
             {% set variables = field|merge({ feed: feed, feedData: feedData, attribute: true }) %}
             {% include 'feed-me/_includes/fields/' ~ template ignore missing with variables only %}
+
         {% endfor %}
     </tbody>
 </table>
@@ -305,15 +307,18 @@
     </thead>
     <tbody>
         {% for field in shippingAddressFields %}
+
             {% set template = field.type ?? 'default' %}
             {% set variables = field|merge({ feed: feed, feedData: feedData, attribute: true }) %}
             {% include 'feed-me/_includes/fields/' ~ template ignore missing with variables only %}
+
         {% endfor %}
     </tbody>
 </table>
 
 <hr>
-{% set Lineitems = [
+
+{% set lineItemsFields = [
     {
         name: 'Purchasable ID',
         handle: 'lineItems-purchasableId',
@@ -448,6 +453,7 @@
         },
     },
 ] %}
+
 <h2>{{ 'Line Items'|t('feed-me') }}</h2>
 
 <table class="feedme-mapping data fullwidth collapsible">
@@ -457,16 +463,17 @@
         <th>{{ 'Default Value'|t('feed-me') }}</th>
     </thead>
     <tbody>
-        {% for field in Lineitems %}
+        {% for field in lineItemsFields %}
+
             {% set template = field.type ?? 'default' %}
             {% set variables = field|merge({ feed: feed, feedData: feedData, attribute: true }) %}
-
             {% include 'feed-me/_includes/fields/' ~ template ignore missing with variables only %}
+
         {% endfor %}
     </tbody>
 </table>
 
-{% set transactionItems = [
+{% set transactionFields = [
     {
         name: 'Transaction ID',
         handle: 'transaction-id',
@@ -488,7 +495,9 @@
         required: true
     }
 ] %}
+
 <hr>
+
 <h2>{{ 'Transactions'|t('feed-me') }}</h2>
 
 <table class="feedme-mapping data fullwidth collapsible">
@@ -498,11 +507,12 @@
         <th>{{ 'Default Value'|t('feed-me') }}</th>
     </thead>
     <tbody>
-        {% for field in transactionItems %}
+        {% for field in transactionFields %}
+
             {% set template = field.type ?? 'default' %}
             {% set variables = field|merge({ feed: feed, feedData: feedData, attribute: true }) %}
-
             {% include 'feed-me/_includes/fields/' ~ template ignore missing with variables only %}
+
         {% endfor %}
     </tbody>
 </table>
@@ -513,7 +523,7 @@
 {% endfor %}
 
 {% 
-    set paymentsItems = [
+    set paymentsFields = [
         {
             name: 'Gateway ID',
             handle: 'gatewayId',
@@ -527,6 +537,7 @@
 %}
 
 <hr>
+
 <h2>{{ 'Payments'|t('feed-me') }}</h2>
 
 <table class="feedme-mapping data fullwidth collapsible">
@@ -536,11 +547,12 @@
         <th>{{ 'Default Value'|t('feed-me') }}</th>
     </thead>
     <tbody>
-        {% for field in paymentsItems %}
+        {% for field in paymentsFields %}
+
             {% set template = field.type ?? 'default' %}
             {% set variables = field|merge({ feed: feed, feedData: feedData, attribute: true }) %}
-
             {% include 'feed-me/_includes/fields/' ~ template ignore missing with variables only %}
+
         {% endfor %}
     </tbody>
 </table>
@@ -551,7 +563,7 @@
 {% endfor %}
 
 {% 
-    set shippingItems = [
+    set shippingFields = [
         {
             name: 'Shipping Total',
             handle: 'shipping-total',
@@ -569,7 +581,9 @@
         }
     ]
 %}
+
 <hr>
+
 <h2>{{ 'Shipping'|t('feed-me') }}</h2>
 
 <table class="feedme-mapping data fullwidth collapsible">
@@ -579,17 +593,18 @@
         <th>{{ 'Default Value'|t('feed-me') }}</th>
     </thead>
     <tbody>
-        {% for field in shippingItems %}
+        {% for field in shippingFields %}
+
             {% set template = field.type ?? 'default' %}
             {% set variables = field|merge({ feed: feed, feedData: feedData, attribute: true }) %}
-
             {% include 'feed-me/_includes/fields/' ~ template ignore missing with variables only %}
+
         {% endfor %}
     </tbody>
 </table>
 
 {% 
-    set taxItems = [
+    set taxFields = [
         {
             name: 'Tax Total',
             handle: 'tax-total',
@@ -613,7 +628,9 @@
         }
     ]
 %}
+
 <hr>
+
 <h2>{{ 'Tax'|t('feed-me') }}</h2>
 
 <table class="feedme-mapping data fullwidth collapsible">
@@ -623,17 +640,18 @@
         <th>{{ 'Default Value'|t('feed-me') }}</th>
     </thead>
     <tbody>
-        {% for field in taxItems %}
+        {% for field in taxFields %}
+
             {% set template = field.type ?? 'default' %}
             {% set variables = field|merge({ feed: feed, feedData: feedData, attribute: true }) %}
-
             {% include 'feed-me/_includes/fields/' ~ template ignore missing with variables only %}
+
         {% endfor %}
     </tbody>
 </table>
 
 {% 
-    set discountItems = [
+    set discountFields = [
         {
             name: 'Discount Total',
             handle: 'discount-total',
@@ -657,7 +675,9 @@
         }
     ]
 %}
+
 <hr>
+
 <h2>{{ 'Discount'|t('feed-me') }}</h2>
 
 <table class="feedme-mapping data fullwidth collapsible">
@@ -667,54 +687,60 @@
         <th>{{ 'Default Value'|t('feed-me') }}</th>
     </thead>
     <tbody>
-        {% for field in discountItems %}
+        {% for field in discountFields %}
+
             {% set template = field.type ?? 'default' %}
             {% set variables = field|merge({ feed: feed, feedData: feedData, attribute: true }) %}
-
             {% include 'feed-me/_includes/fields/' ~ template ignore missing with variables only %}
+
         {% endfor %}
     </tbody>
 </table>
 
-<hr>
-<h2>{{ 'Custom Fields'|t('feed-me') }}</h2>
-
 {% set layoutId = feed.elementGroup[feed.elementType] %}
 
-{# {% set tabs = craft.app.fields.getLayoutById(layoutId).getTabs() %}
+{% if layoutId %}
 
-{% for tab in tabs %}
+    <hr>
 
-    <h3>{{ tab.name }} Fields</h3>
+    <h2>{{ 'Custom Fields'|t('feed-me') }}</h2>
 
-    <table class="feedme-mapping data fullwidth collapsible">
-        <thead>
-            <th>{{ 'Field'|t('feed-me') }}</th>
-            <th>{{ 'Feed Element'|t('feed-me') }}</th>
-            <th>{{ 'Default Value'|t('feed-me') }}</th>
-        </thead>
-        <tbody>
-            {% for layoutField in tab.getElements()|filter(e => e is instance of('craft\\fieldlayoutelements\\CustomField')) %}
+    {% set tabs = craft.app.fields.getLayoutById(layoutId).getTabs() %}
 
-                {% set field = layoutField.getField() %}
-                {% set fieldClass = craft.feedme.fields.getRegisteredField(className(field)) %}
-                {% set template = fieldClass.getMappingTemplate() %}
+    {% for tab in tabs %}
 
-                {% set variables = { name: field.name, handle: field.handle, feed: feed, feedData: feedData, field: field, fieldClass: fieldClass } %}
+        <h3>{{ tab.name }} Fields</h3>
 
-                {% include template ignore missing with variables only %}
+        <table class="feedme-mapping data fullwidth collapsible">
+            <thead>
+                <th>{{ 'Field'|t('feed-me') }}</th>
+                <th>{{ 'Feed Element'|t('feed-me') }}</th>
+                <th>{{ 'Default Value'|t('feed-me') }}</th>
+            </thead>
+            <tbody>
+                {% for layoutField in tab.getElements()|filter(e => e is instance of('craft\\fieldlayoutelements\\CustomField')) %}
 
-            {% endfor %}
-        </tbody>
-    </table>
+                    {% set field = layoutField.getField() %}
+                    {% set fieldClass = craft.feedme.fields.getRegisteredField(className(field)) %}
+                    {% set template = fieldClass.getMappingTemplate() %}
 
-{% endfor %} #}
+                    {% set variables = { name: field.name, handle: field.handle, feed: feed, feedData: feedData, field: field, fieldClass: fieldClass } %}
+
+                    {% include template ignore missing with variables only %}
+
+                {% endfor %}
+            </tbody>
+        </table>
+
+    {% endfor %}
+
+{% endif %}
 
 <hr>
 
 <fieldset class="feedme-uniques" aria-labelledby="node-uniques-label">
     
-    {% for field in Orderfields %}
+    {% for field in orderFields %}
         {% if field and craft.feedme.fieldCanBeUniqueId(field) %}
             {{ forms.checkboxField({
                 name: 'fieldUnique[' ~ field.handle ~ ']',
