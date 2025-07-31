@@ -1,0 +1,590 @@
+<?php
+
+namespace bymayo\craftorderimporter\integrations;
+
+use bymayo\craftorderimporter\Plugin as OrderImporter;
+
+use Cake\Utility\Hash;
+use Carbon\Carbon;
+use Craft;
+use craft\base\ElementInterface;
+use bymayo\craftorderimporter\elements\CommerceOrder as CommerceOrderElement;
+use craft\commerce\elements\Variant as VariantElement;
+use craft\commerce\Plugin as Commerce;
+use craft\db\Query;
+use craft\feedme\base\Element;
+use craft\feedme\events\FeedProcessEvent;
+use craft\feedme\helpers\BaseHelper;
+use craft\feedme\helpers\DataHelper;
+use craft\feedme\helpers\DateHelper;
+use craft\feedme\Plugin;
+use craft\feedme\services\Process;
+use craft\feedme\events\ElementEvent;
+use craft\fields\Matrix;
+use craft\fields\Table;
+use craft\helpers\Json;
+use DateTime;
+use Exception;
+use yii\base\Event;
+use craft\helpers\StringHelper;
+
+use craft\commerce\elements;
+use craft\helpers\Db;
+
+use craft\commerce\models\Transaction;
+use craft\commerce\records\Transaction as TransactionRecord;
+use craft\commerce\elements\Order;
+
+use craft\commerce\errors\CurrencyException;
+use craft\commerce\errors\OrderStatusException;
+use craft\commerce\errors\TransactionException;
+use craft\commerce\events\TransactionEvent;
+use craft\commerce\helpers\Currency;
+
+use craft\commerce\errors\PaymentSourceException;
+use craft\commerce\models\PaymentSource;
+use craft\commerce\records\PaymentSource as PaymentSourceRecord;
+
+use craft\commerce\records\Order as OrderRecord;
+use craft\commerce\records\LineItem as LineItemRecord;
+use craft\commerce\models\LineItem;
+use craft\commerce\records\Purchasable as PurchasableRecord;
+
+/**
+ *
+ * @property-read string $mappingTemplate
+ * @property-read mixed $groups
+ * @property-write mixed $model
+ * @property-read string $groupsTemplate
+ * @property-read string $columnTemplate
+ */
+class CommerceOrder extends Element
+{
+    // Properties
+    // =========================================================================
+
+    /**
+     * @var string
+     */
+    public static string $name = 'Commerce Orders';
+
+    /**
+     * @var string
+     */
+    public static string $class = CommerceOrderElement::class;
+
+    // Templates
+    // =========================================================================
+
+    /**
+     * @inheritDoc
+     */
+    public function getGroupsTemplate(): string
+    {
+        return 'order-importer/groups';
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public function getColumnTemplate(): string
+    {
+
+        return 'order-importer/column';
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public function getMappingTemplate(): string
+    {
+        return 'order-importer/map';
+    }
+    // Public Methods
+    // =========================================================================
+
+    /**
+     * @inheritDoc
+     */
+    public function init(): void
+    {
+        parent::init();
+
+        Event::on(Process::class, Process::EVENT_STEP_BEFORE_PARSE_CONTENT, function(FeedProcessEvent $event) {
+
+            $feed = $event->feed;
+            $fieldMapping = $feed['fieldMapping'];
+
+            if (!$event->element->id) {
+                $newOrderElement = Craft::createObject(\craft\commerce\elements\Order::class);
+                $originalScenario = $event->element->getScenario();
+                $event->element->setScenario(\craft\base\Element::SCENARIO_ESSENTIALS);
+                if (!Craft::$app->getDrafts()->saveElementAsDraft($newOrderElement, null, null, null, false)) {
+                    throw new Exception('Unable to create order element as unsaved');
+                }
+                $event->element->setScenario($originalScenario);
+            }
+
+            return $event;
+
+        });
+
+        Event::on(Process::class, Process::EVENT_STEP_BEFORE_ELEMENT_SAVE, function(FeedProcessEvent $event) {
+
+            $this->_parseBillingAddress($event);
+            $this->_parseShippingAddress($event);
+
+        });
+
+        Event::on(Process::class, Process::EVENT_STEP_AFTER_ELEMENT_SAVE, function(FeedProcessEvent $event) {
+
+            $this->_parseLineItems($event);
+            $this->_parseAdjustments($event);
+            $this->_parseTransactions($event); // Should come after all costs
+            $this->_parseShippingMethod($event); // Should always come last
+
+        });
+
+    }
+
+    
+    private function _parseAdjustments($event): void
+    {
+
+        $adjustments = [
+            [
+                'amountField' => 'shipping-total',
+                'nameField' => 'shipping-methodName',
+                'type' => 'shipping',
+            ],
+            [
+                'amountField' => 'tax-total',
+                'nameField' => 'tax-rateName',
+                'descriptionField' => 'tax-rate',
+                'type' => 'tax',
+            ],
+            [
+                'amountField' => 'discount-total',
+                'nameField' => 'discount-name',
+                'descriptionField' => 'discount-description',
+                'type' => 'discount',
+            ]
+        ];
+
+        $order = Commerce::getInstance()->getOrders()->getOrderById($event->element->id);
+
+        foreach ($adjustments as $adjustment) {
+
+            $feed = $event->feed;
+
+            $amountField = $adjustment['amountField'];
+
+            if (isset($feed['fieldMapping'][$amountField])) {
+
+                $amountFieldInfo = $feed['fieldMapping'][$amountField];
+                $amountValue = $this->fetchSimpleValue($event->feedData, $amountFieldInfo);
+                
+                $nameField = $adjustment['nameField'];
+                $nameFieldInfo = $feed['fieldMapping'][$nameField];
+                $nameValue = $this->fetchSimpleValue($event->feedData, $nameFieldInfo);
+
+                if (isset($adjustment['descriptionField'])) {
+                    $descriptionField = $adjustment['descriptionField'];
+                    $descriptionFieldInfo = $feed['fieldMapping'][$descriptionField];
+                    $descriptionValue = $this->fetchSimpleValue($event->feedData, $descriptionFieldInfo);
+                }
+
+                $params = [
+                    'orderId' => $order->id,
+                    'type' => $adjustment['type'],
+                    'name' => $nameValue,
+                    'amount' => $amountValue,
+                    'sourceSnapshot' => json_encode([])
+                ];
+
+                if (isset($descriptionValue)) {
+                    $params['description'] = $descriptionValue;
+                }
+
+                $results = (new \craft\db\Query())
+                    ->createCommand()
+                    ->insert('{{%commerce_orderadjustments}}', $params)
+                    ->execute();
+
+            }
+
+        }
+
+    }
+
+    private function _parseShippingMethod($event): void
+    {
+
+        // @TODO: Parse shipping method
+
+        // $feed = $event->feed;
+        // $fieldHandle = 'shipping-methodName';
+        // $fieldInfo = $feed['fieldMapping'][$fieldHandle];
+        // $value = $this->fetchSimpleValue($event->feedData, $fieldInfo);
+
+        // $event->element->shippingMethodHandle = $value;
+        
+        // Craft::$app->getElements()->saveElement($event->element, false);
+
+    }
+
+    private function _parseLineItems($event): void
+    {
+
+        $feed = $event->feed;
+
+        $lineItems = array();
+        $lineItemsObjects = array();
+
+        $order = Commerce::getInstance()->getOrders()->getOrderById($event->element->id);
+
+        foreach ($feed['fieldMapping'] as $fieldHandle => $fieldInfo) {
+
+            if (str_contains($fieldHandle, 'lineItems-')) {
+
+                $attribute = str_replace('lineItems-', '', $fieldHandle);
+                $attributeValue = DataHelper::fetchArrayValue($event->feedData, $fieldInfo);
+
+                $totalLineItems = count($attributeValue);
+
+                for ($i = 0; $i < $totalLineItems; $i++) {
+                    
+                    $value = DataHelper::fetchSimpleValue($event->feedData, $fieldInfo);
+                    $lineItems[$i][$attribute] = $value;
+                    $lineItems[$i]['orderId'] = $order->id;
+                }
+
+                $feed['fieldMapping']['lineItems'] = $lineItems;
+
+                unset($feed['fieldMapping'][$fieldHandle]);
+            }
+
+        }
+
+        foreach ($lineItems as $lineItemData) {
+
+            $lineItem = Commerce::getInstance()->getLineItems()->create(
+                $order, 
+                [
+                    'purchasableId' => $lineItemData['purchasableId'],
+                    'options' => $lineItemData['options'] ?? [],
+                    'qty' => $lineItemData['qty'] ?? 1,
+                    'note' => $lineItemData['note'] ?? ''
+                ]
+            );
+
+            $lineItem->setOrder($order);
+            
+            $lineItemsObjects[] = $lineItem;
+
+            Commerce::getInstance()->getLineItems()->saveLineItem($lineItem, false);
+
+        }
+
+    }
+
+    private function _parseBillingAddress($event): void
+    {
+
+        $feed = $event->feed;
+
+        foreach ($feed['fieldMapping'] as $fieldHandle => $fieldInfo) {
+            if (str_contains($fieldHandle, 'billingAddress-')) {
+
+                $attribute = str_replace('billingAddress-', '', $fieldHandle);
+                $attributeValue = DataHelper::fetchSimpleValue($event->feedData, $fieldInfo);
+                $feed['fieldMapping']['billingAddress'][$attribute] = $attributeValue;
+                unset($feed['fieldMapping'][$fieldHandle]);
+            }
+        }
+
+        $event->element->billingAddress = $feed['fieldMapping']['billingAddress'];
+
+    }
+
+    private function _parseShippingAddress($event): void
+    {
+
+        $feed = $event->feed;
+
+        foreach ($feed['fieldMapping'] as $fieldHandle => $fieldInfo) {
+            if (str_contains($fieldHandle, 'shippingAddress-')) {
+
+                $attribute = str_replace('shippingAddress-', '', $fieldHandle);
+                $attributeValue = DataHelper::fetchSimpleValue($event->feedData, $fieldInfo);
+                $feed['fieldMapping']['shippingAddress'][$attribute] = $attributeValue;
+                unset($feed['fieldMapping'][$fieldHandle]);
+            }
+        }
+
+        $event->element->shippingAddress = $feed['fieldMapping']['shippingAddress'];
+
+    }
+
+    private function _parseTransactions($event): void
+    {
+
+        $feed = $event->feed;
+
+        $transactions = array();
+        $transactionsObjects = array();
+
+        $order = Commerce::getInstance()->getOrders()->getOrderById($event->element->id);
+
+        foreach ($feed['fieldMapping'] as $fieldHandle => $fieldInfo) {
+
+            if (str_contains($fieldHandle, 'transaction-')) {
+
+                $attribute = str_replace('transactions-', '', $fieldHandle);
+                $attributeValue = DataHelper::fetchArrayValue($event->feedData, $fieldInfo);
+
+                $totalLineItems = count($attributeValue);
+
+                for ($i = 0; $i < $totalLineItems; $i++) {
+                    
+                    $value = DataHelper::fetchSimpleValue($event->feedData, $fieldInfo);
+                    $transactions[$i][$attribute] = $value;
+                }
+
+                $feed['fieldMapping']['transactions'] = $transactions;
+
+                unset($feed['fieldMapping'][$fieldHandle]);
+            }
+            
+        }
+
+        // Using Query builder for insert
+        $results = (new \craft\db\Query())
+            ->createCommand()
+            ->insert('{{%commerce_transactions}}', [
+                'orderId' => $order->id,
+                'gatewayId' => $order->gatewayId,
+                'userId' => 1, // @TODO: Get the user ID from the feed
+                'hash' => md5(uniqid((string)mt_rand(), true)),
+                'type' => TransactionRecord::TYPE_PURCHASE,
+                'amount' => $order->getPaymentAmount(),
+                'paymentAmount' => $order->getPaymentAmount(),
+                'currency' => $order->currency,
+                'paymentRate' => '1.1000', // @TODO: Get the payment rate from the feed
+                'status' => TransactionRecord::STATUS_SUCCESS,
+                'paymentCurrency' => $order->paymentCurrency,
+                'reference' => '',
+            ])
+            ->execute();
+
+        // $transaction = Commerce::getInstance()->getTransactions()->createTransaction($order, null, TransactionRecord::TYPE_PURCHASE);
+
+        // Commerce::getInstance()->getTransactions()->saveTransaction($transaction);
+        // Commerce::getInstance()->getPayments()->captureTransaction($transaction);
+
+        // $transaction->status = TransactionRecord::STATUS_SUCCESS;
+
+
+        // if (Commerce::getInstance()->getTransactions()->saveTransaction($transaction)) {
+        //     $order->updateOrderPaidInformation();
+        // }
+
+        // @TODO: Add a transaction for each transaction in the feed
+
+        // foreach ($transactions as $transactionData) {
+
+        //     $transaction = Commerce::getInstance()->getTransactions()->createTransaction($order, null, TransactionRecord::TYPE_PURCHASE);
+
+        //     Commerce::getInstance()->getTransactions()->saveTransaction($transaction);
+        //     // Commerce::getInstance()->getPayments()->captureTransaction($transaction);
+
+        //     OrderImporter::log('_parseTransactions: ' . $transaction->id);
+
+        //     $order->updateOrderPaidInformation();
+
+        // }
+        
+        
+    }
+
+    public function getQuery($settings, array $params = []): mixed
+    {
+        $query = CommerceOrderElement::find()
+            ->status(null)
+        //   ->typeId($settings['elementGroup'][ProductElement::class])
+            ->siteId(Hash::get($settings, 'siteId') ?: Craft::$app->getSites()->getPrimarySite()->id);
+        Craft::configure($query, $params);
+
+        return $query;
+    }
+
+    public function setModel($settings): ElementInterface
+    {
+        $this->element = new CommerceOrderElement();
+
+        $siteId = Hash::get($settings, 'siteId');
+
+        if ($siteId) {
+            $this->element->siteId = $siteId;
+        }
+
+        return $this->element;
+
+    }
+
+    public function getGroups(): array
+    {
+        if (Commerce::getInstance()) {
+            return [];
+        }
+
+        return [];
+
+    }
+
+    protected function parseOrderStatusId($feedData, $fieldInfo): DateTime|bool|array|Carbon|string|null
+    {
+        $value = $this->fetchSimpleValue($feedData, $fieldInfo);
+        
+        if (is_numeric($value)) {
+            $orderStatus = Commerce::getInstance()->getOrderStatuses()->getOrderStatusById($value);
+        } else {
+            $orderStatus = Commerce::getInstance()->getOrderStatuses()->getOrderStatusByHandle($value);
+        }
+        
+        return $orderStatus->id;
+    }
+
+    /**
+     * @Generate Customer ID By Mapping Field
+     */
+    protected function parseCustomerId($feedData, $fieldInfo): DateTime|bool|array|Carbon|string|null
+    {
+
+        $value = $this->fetchSimpleValue($feedData, $fieldInfo);
+
+        $node = $fieldInfo['node'];
+        if($node == 'usedefault'){
+            return $value;
+        } else {
+            // @TODO: Check to see if customer exists, if not create them
+            return $value;
+        }
+        
+    }
+
+    /**
+     * @Random Generate UID For Order
+     */
+
+    public  function UUID()
+	{
+		return sprintf('%04x%04x-%04x-%04x-%04x-%04x%04x%04x',
+
+			// 32 bits for "time_low"
+			mt_rand(0, 0xffff), mt_rand(0, 0xffff),
+
+			// 16 bits for "time_mid"
+			mt_rand(0, 0xffff),
+
+			// 16 bits for "time_hi_and_version", four most significant bits holds version number 4
+			mt_rand(0, 0x0fff) | 0x4000,
+
+			// 16 bits, 8 bits for "clk_seq_hi_res", 8 bits for "clk_seq_low", two most significant bits holds zero and
+			// one for variant DCE1.1
+			mt_rand(0, 0x3fff) | 0x8000,
+
+			// 48 bits for "node"
+			mt_rand(0, 0xffff), mt_rand(0, 0xffff), mt_rand(0, 0xffff)
+
+		);
+	}
+
+    protected function parseUid($feedData, $fieldInfo): DateTime|bool|array|Carbon|string|null
+    {
+         $value = $this->fetchSimpleValue($feedData, $fieldInfo);
+         $values =  $this->UUID();
+         return $values;
+    }
+
+    protected function parseNumber($feedData, $fieldInfo): DateTime|bool|array|Carbon|string|null
+    {
+         $value = $this->fetchSimpleValue($feedData, $fieldInfo);
+         $values =  MD5( $value );
+         return $values;
+    }
+
+    protected function parseReference($feedData, $fieldInfo): DateTime|bool|array|Carbon|string|null
+    {
+         $value = $this->fetchSimpleValue($feedData, $fieldInfo);
+         $values =  substr( MD5( $value ), 0, 7);
+         return $values;
+    }
+
+    protected function parseDateOrdered($feedData, $fieldInfo): DateTime|bool|array|Carbon|string|null
+    {
+        $value = $this->fetchSimpleValue($feedData, $fieldInfo);
+         if( $fieldInfo ){
+             $node = $fieldInfo['node'];
+               if( $node == 'usedefault' ){
+                   return $value;
+               }else{
+                   $formatting="Y-m-d\\TH:";
+                   $dateValue = DateHelper::parseString($value, $formatting);
+                    if ($dateValue instanceof Carbon) {
+                        $dateValue = $dateValue->toDateTime();
+                        return $dateValue;
+                    }
+               }
+         }
+    }
+
+    protected function parseDateAuthorized($feedData, $fieldInfo): DateTime|bool|array|Carbon|string|null
+    {
+        $value = $this->fetchSimpleValue($feedData, $fieldInfo);
+         if( $fieldInfo ){
+             $node = $fieldInfo['node'];
+               if( $node == 'usedefault' ){
+                   return $value;
+               }else{
+                   $formatting="Y-m-d\\TH:";
+                   $dateValue = DateHelper::parseString($value, $formatting);
+                    if ($dateValue instanceof Carbon) {
+                        $dateValue = $dateValue->toDateTime();
+                        return $dateValue;
+                    }
+               }
+         }
+    }
+
+    protected function parseDatePaid($feedData, $fieldInfo): DateTime|bool|array|Carbon|string|null
+    {
+        $value = $this->fetchSimpleValue($feedData, $fieldInfo);
+
+         if( $fieldInfo ){
+             $node = $fieldInfo['node'];
+               if( $node == 'usedefault' ){
+                   return $value;
+               }else{
+                   $formatting="Y-m-d\\TH:";
+                   $dateValue = DateHelper::parseString($value, $formatting);
+                    if ($dateValue instanceof Carbon) {
+                        $dateValue = $dateValue->toDateTime();
+                        return $dateValue;
+                    }
+               }
+         }
+    }
+
+    protected function parseGatewayId($feedData, $fieldInfo): DateTime|bool|array|Carbon|string|null
+    {
+
+         $value = $this->fetchSimpleValue($feedData, $fieldInfo);
+         $gaetway = Commerce::getInstance()->getGateways()->getGatewayByHandle($value);
+         if( isset($gaetway->id) ){
+             return $gaetway->id;
+         }
+        return $value;
+    }
+
+}

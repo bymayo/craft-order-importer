@@ -1,0 +1,13 @@
+ {% import '_includes/forms' as forms %}
+
+{{ forms.selectField({
+    label: "Commerce Orders Type"|t('feed-me'),
+    id: 'elementGroup-' ~ elementType,
+    name: 'elementGroup[' ~ elementType ~ ']',
+    options: {
+        '72': 'Commerce Orders',
+    },
+    value: 'craft\commerce\elements\Order',
+    errors: feed.getErrors('elementGroup'),
+    required: true,
+}) }}

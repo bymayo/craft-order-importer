@@ -2,7 +2,24 @@
 
 namespace bymayo\craftorderimporter;
 
+use craft\web\twig\variables\CraftVariable;
 use Craft;
+use craft\base\Model;
+use craft\feedme\events\RegisterFeedMeElementsEvent;
+use craft\feedme\services\Elements;
+use yii\base\Event;
+use bymayo\craftorderimporter\integrations\CommerceOrder;
+
+use craft\feedme\base\Element;
+use craft\feedme\events\ElementEvent;
+
+use craft\feedme\events\FeedProcessEvent;
+use craft\feedme\services\Process;
+use craft\feedme\helpers\DataHelper;
+use Cake\Utility\Hash;
+
+use craft\helpers\FileHelper;
+
 use craft\base\Plugin as BasePlugin;
 
 /**
@@ -17,12 +34,21 @@ class Plugin extends BasePlugin
 {
     public string $schemaVersion = '1.0.0';
 
+    public static $plugin;
+
+    public static function log($message)
+    {
+
+        $file = Craft::getAlias('@storage/logs/order-importer.log');
+        $log = date('Y-m-d H:i:s'). ' ' . $message . "\n";
+        FileHelper::writeToFile($file, $log, ['append' => true]);
+
+    }
+
     public static function config(): array
     {
         return [
-            'components' => [
-                // Define component configs here...
-            ],
+            'components' => [],
         ];
     }
 
@@ -30,18 +56,24 @@ class Plugin extends BasePlugin
     {
         parent::init();
 
-        $this->attachEventHandlers();
-
-        // Any code that creates an element query or loads Twig should be deferred until
-        // after Craft is fully initialized, to avoid conflicts with other plugins/modules
         Craft::$app->onInit(function() {
-            // ...
+            $this->attachEventHandlers();
         });
     }
 
     private function attachEventHandlers(): void
     {
-        // Register event handlers here ...
-        // (see https://craftcms.com/docs/5.x/extend/events.html to get started)
+
+        Event::on(
+            Elements::class, 
+            Elements::EVENT_REGISTER_FEED_ME_ELEMENTS, 
+            function(RegisterFeedMeElementsEvent $e) {
+
+                $this->log('Registering CommerceOrder element');
+
+                $e->elements[] = CommerceOrder::class;
+            }
+        );
+
     }
 }
