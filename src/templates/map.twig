@@ -13,7 +13,7 @@
     name: 'Customer ID',
     handle: 'customerId',
     required: true,
-    instructions: 'If no customer ID is provided, a new customer will be created from the email address.'|t('feed-me'),
+    instructions: 'If no customer ID is provided, a new customer will be created from the "Order Email Address" field.'|t('feed-me'),
     default: {
         type: 'text',
     }
@@ -99,7 +99,6 @@
 {
     name: 'Order Language',
     handle: 'orderLanguage',
-    required: true,
     default: {
         type: 'text',
     },
@@ -192,7 +191,7 @@
         }
     },
     {
-        name: 'Country',
+        name: 'Country Code',
         handle: 'billingAddress-countryCode',
         required: true,
         default: {
@@ -315,136 +314,140 @@
 
 <hr>
 {% set Lineitems = [
-{
-    name: 'Purchasable ID',
-    handle: 'lineItems-purchasableId',
-    required: true,
-    default: {
-        type: 'text',
+    {
+        name: 'Purchasable ID',
+        handle: 'lineItems-purchasableId',
+        instructions: 'Product/Purchasable must exist first.'|t('feed-me'),
+        required: true,
+        default: {
+            type: 'text',
+        },
     },
-},
-{
-    name: 'Tax Category ID',
-    handle: 'lineItems-taxCategoryId',
-    required: true,
-    default: {
-        type: 'select',
-        options: [
-            { label: 'General', value: '1' }
-        ],
+    {
+        name: 'SKU',
+        handle: 'lineItems-sku',
+        required: true,
+        default: {
+            type: 'text',
+        },
     },
-},
-{
-    name: 'Shipping Category ID',
-    handle: 'lineItems-shippingCategoryId',
-    required: true,
-    default: {
-        type: 'select',
-        options: [
-            { label: 'General', value: '1' }
-        ],
+    {
+        name: 'Description',
+        handle: 'lineItems-description',
+        required: true,
+        default: {
+            type: 'text',
+        },
     },
-},
-{
-    name: 'Description',
-    handle: 'lineItems-description',
-    required: true,
-    default: {
-        type: 'text',
+    {
+        name: 'Options',
+        handle: 'lineItems-options',
+        instructions: 'Must be a formatted JSON string.'|t('feed-me'),
+        default: {
+            type: 'text',
+        },
     },
-},
-{
-    name: 'Options',
-    handle: 'lineItems-options',
-    instructions: 'Must be a formatted JSON string.'|t('feed-me'),
-    default: {
-        type: 'text',
+    {
+        name: 'Width',
+        handle: 'lineItems-width',
+        default: {
+            type: 'text',
+        },
     },
-},
-{
-    name: 'Price',
-    handle: 'lineItems-price',
-    required: true,
-    default: false,
-},
-{
-    name: 'Sale Amount',
-    handle: 'lineItems-saleAmount',
-    default: false,
-},
-{
-    name: 'Sale Price',
-    handle: 'lineItems-salePrice',
-    default: false,
-},
-{
-    name: 'SKU',
-    handle: 'lineItems-sku',
-    required: true,
-    default: {
-        type: 'text',
+    {
+        name: 'Height',
+        handle: 'lineItems-height',
+        default: {
+            type: 'text',
+        },
     },
-},
-{
-    name: 'Weight',
-    handle: 'lineItems-weight',
-    default: {
-        type: 'text',
+    {
+        name: 'Length',
+        handle: 'lineItems-length',
+        default: {
+            type: 'text',
+        },
     },
-},
-{
-    name: 'Height',
-    handle: 'lineItems-height',
-    default: {
-        type: 'text',
+    {
+        name: 'Weight',
+        handle: 'lineItems-weight',
+        default: {
+            type: 'text',
+        },
     },
-},{
-    name: 'Length',
-    handle: 'lineItems-length',
-    default: {
-        type: 'text',
+    {
+        name: 'Quantity',
+        handle: 'lineItems-qty',
+        required: true,
+        default: {
+            type: 'text',
+        },
     },
-},{
-    name: 'Width',
-    handle: 'lineItems-width',
-    default: {
-        type: 'text',
+    {
+        name: 'Price',
+        handle: 'lineItems-price',
+        required: true,
+        default: false,
     },
-},{
-    name: 'Subtotal',
-    handle: 'lineItems-subtotal',
-    required: true,
-    default: false,
-},
-{
-    name: 'Total',
-    handle: 'lineItems-total',
-    required: true,
-    default: false,
-},
-{
-    name: 'Quantity',
-    handle: 'lineItems-qty',
-    required: true,
-    default: {
-        type: 'text',
+    {
+        name: 'Sale Price',
+        handle: 'lineItems-salePrice',
+        default: false,
     },
-},
-{
-    name: 'Note',
-    handle: 'lineItems-note',
-    default: {
-        type: 'text',
+    {
+        name: 'Sale Amount',
+        handle: 'lineItems-saleAmount',
+        default: false,
     },
-},
-{
-    name: 'Private Note',
-    handle: 'lineItems-privateNote',
-    default: {
-        type: 'text',
+    {
+        name: 'Subtotal',
+        handle: 'lineItems-subtotal',
+        required: true,
+        default: false,
     },
-},
- ] %}
+    {
+        name: 'Total',
+        handle: 'lineItems-total',
+        required: true,
+        default: false,
+    },
+    {
+        name: 'Note',
+        handle: 'lineItems-note',
+        default: {
+            type: 'text',
+        },
+    },
+    {
+        name: 'Private Note',
+        handle: 'lineItems-privateNote',
+        default: {
+            type: 'text',
+        },
+    },
+    {
+        name: 'Tax Category ID',
+        handle: 'lineItems-taxCategoryId',
+        required: true,
+        default: {
+            type: 'select',
+            options: [
+                { label: 'General', value: '1' }
+            ],
+        },
+    },
+    {
+        name: 'Shipping Category ID',
+        handle: 'lineItems-shippingCategoryId',
+        required: true,
+        default: {
+            type: 'select',
+            options: [
+                { label: 'General', value: '1' }
+            ],
+        },
+    },
+] %}
 <h2>{{ 'Line Items'|t('feed-me') }}</h2>
 
 <table class="feedme-mapping data fullwidth collapsible">
