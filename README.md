@@ -2,7 +2,7 @@
 
 # Order Importer for Craft CMS 5
 
-Order Importer is a Craft CMS plugin that uses [Feed Me](https://plugins.craftcms.com/feed-me) to import orders from a import file (XML & JSON).
+Order Importer is a Craft CMS plugin that uses [Feed Me](https://plugins.craftcms.com/feed-me) to import orders in to Craft Commerce from a import file (XML & JSON).
 
 <img src="https://raw.githubusercontent.com/bymayo/craft-order-importer/craft-5/resources/screenshot.png" width="850">
 
@@ -17,12 +17,15 @@ Order Importer is a Craft CMS plugin that uses [Feed Me](https://plugins.craftcm
 
 - Craft CMS 5.x
 - Feed Me 6.x
+- Craft Commerce 5.x
 - PHP 8.2
 - MySQL (No PostgreSQL support)
 
 ## Setup
 
-This plugin requires Feed Me to function. All Product/Purchasables must be created in the CMS before importing orders. Similar if all Users/Customers are created in the CMS before importing orders this would be a good idea, but this plugin will create any Users/Customers that don't exist.
+This plugin requires Feed Me and Craft Commerce to function. 
+
+All Product/Purchasables must be created in the CMS before importing orders. Similar if all Users/Customers are created in the CMS before importing orders this would be a good idea, but this plugin will create any Users/Customers that don't exist.
 
 1. Navigate to the Feed Me in the sidebar and create a new feed.
 2. Give your feed a `Name`, add you `Feed URL`.
