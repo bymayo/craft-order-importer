@@ -1,0 +1,9 @@
+{% set layoutId = feed.elementGroup[elementType] %}
+
+{% if layoutId %}
+
+    {% set layout = craft.app.fields.getLayoutById(layoutId) %}
+
+    {{ layout.type }}
+
+{% endif %}

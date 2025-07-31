@@ -1,15 +1,15 @@
- {% import '_includes/forms' as forms %}
+{% import '_includes/forms' as forms %}
 
- {% set fieldLayouts = craft.app.fields.getAllLayouts() %}
- {% set options = [] %}
+{% set fieldLayouts = craft.app.fields.getAllLayouts() %}
+{% set options = [] %}
 
- {% for group in fieldLayouts %}
+{% for group in fieldLayouts %}
 
-    {% if 'Order' in group.type %}
-        {% set options = options|merge([{ label: 'Commerce Orders', value: group.id }]) %}
-    {% endif %}
+{% if 'Order' in group.type %}
+    {% set options = options|merge([{ label: 'Commerce Orders', value: group.id }]) %}
+{% endif %}
 
- {% endfor %}
+{% endfor %}
 
 {{ forms.selectField({
     label: "Commerce Orders Type"|t('feed-me'),
