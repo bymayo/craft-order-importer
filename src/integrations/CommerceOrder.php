@@ -170,7 +170,7 @@ class CommerceOrder extends Element
                 $nameFieldInfo = $feed['fieldMapping'][$nameField];
                 $nameValue = $this->fetchSimpleValue($event->feedData, $nameFieldInfo);
 
-                if (isset($adjustment['descriptionField'])) {
+                if (isset($adjustment['descriptionField']) && isset($feed['fieldMapping'][$adjustment['descriptionField']])) {
                     $descriptionField = $adjustment['descriptionField'];
                     $descriptionFieldInfo = $feed['fieldMapping'][$descriptionField];
                     $descriptionValue = $this->fetchSimpleValue($event->feedData, $descriptionFieldInfo);
@@ -188,10 +188,12 @@ class CommerceOrder extends Element
                     $params['description'] = $descriptionValue;
                 }
 
-                $results = (new \craft\db\Query())
+                if (!(new \craft\db\Query())
                     ->createCommand()
                     ->insert('{{%commerce_orderadjustments}}', $params)
-                    ->execute();
+                    ->execute()) {
+                    OrderImporter::log('Failed to insert ' . $adjustment['type'] . ' adjustment for order ' . $order->id);
+                }
 
             }
 
@@ -235,9 +237,7 @@ class CommerceOrder extends Element
                 $totalLineItems = count($attributeValue);
 
                 for ($i = 0; $i < $totalLineItems; $i++) {
-                    
-                    $value = DataHelper::fetchSimpleValue($event->feedData, $fieldInfo);
-                    $lineItems[$i][$attribute] = $value;
+                    $lineItems[$i][$attribute] = $attributeValue[$i] ?? null;
                     $lineItems[$i]['orderId'] = $order->id;
                 }
 
@@ -363,15 +363,13 @@ class CommerceOrder extends Element
 
             if (str_contains($fieldHandle, 'transaction-')) {
 
-                $attribute = str_replace('transactions-', '', $fieldHandle);
+                $attribute = str_replace('transaction-', '', $fieldHandle);
                 $attributeValue = DataHelper::fetchArrayValue($event->feedData, $fieldInfo);
 
                 $totalLineItems = count($attributeValue);
 
                 for ($i = 0; $i < $totalLineItems; $i++) {
-                    
-                    $value = DataHelper::fetchSimpleValue($event->feedData, $fieldInfo);
-                    $transactions[$i][$attribute] = $value;
+                    $transactions[$i][$attribute] = $attributeValue[$i] ?? null;
                 }
 
                 $feed['fieldMapping']['transactions'] = $transactions;
@@ -381,24 +379,25 @@ class CommerceOrder extends Element
             
         }
 
-        // Using Query builder for insert
-        $results = (new \craft\db\Query())
+        if (!(new \craft\db\Query())
             ->createCommand()
             ->insert('{{%commerce_transactions}}', [
                 'orderId' => $order->id,
                 'gatewayId' => $order->gatewayId,
-                'userId' => 1, // @TODO: Get the user ID from the feed
-                'hash' => md5(uniqid((string)mt_rand(), true)),
+                'userId' => $order->getCustomerId(),
+                'hash' => Craft::$app->getSecurity()->generateRandomString(32),
                 'type' => TransactionRecord::TYPE_PURCHASE,
                 'amount' => $order->getPaymentAmount(),
                 'paymentAmount' => $order->getPaymentAmount(),
                 'currency' => $order->currency,
-                'paymentRate' => '1.1000', // @TODO: Get the payment rate from the feed
+                'paymentRate' => '1.0000',
                 'status' => TransactionRecord::STATUS_SUCCESS,
                 'paymentCurrency' => $order->paymentCurrency,
                 'reference' => '',
             ])
-            ->execute();
+            ->execute()) {
+            OrderImporter::log('Failed to insert transaction for order ' . $order->id);
+        }
 
         // $transaction = Commerce::getInstance()->getTransactions()->createTransaction($order, null, TransactionRecord::TYPE_PURCHASE);
 
@@ -457,12 +456,7 @@ class CommerceOrder extends Element
 
     public function getGroups(): array
     {
-        if (Commerce::getInstance()) {
-            return [];
-        }
-
         return [];
-
     }
 
     protected function parseOrderStatusId($feedData, $fieldInfo): DateTime|bool|array|Carbon|string|null
@@ -491,28 +485,16 @@ class CommerceOrder extends Element
      * @Random Generate UID For Order
      */
 
-    public  function UUID()
-	{
-		return sprintf('%04x%04x-%04x-%04x-%04x-%04x%04x%04x',
-
-			// 32 bits for "time_low"
-			mt_rand(0, 0xffff), mt_rand(0, 0xffff),
-
-			// 16 bits for "time_mid"
-			mt_rand(0, 0xffff),
-
-			// 16 bits for "time_hi_and_version", four most significant bits holds version number 4
-			mt_rand(0, 0x0fff) | 0x4000,
-
-			// 16 bits, 8 bits for "clk_seq_hi_res", 8 bits for "clk_seq_low", two most significant bits holds zero and
-			// one for variant DCE1.1
-			mt_rand(0, 0x3fff) | 0x8000,
-
-			// 48 bits for "node"
-			mt_rand(0, 0xffff), mt_rand(0, 0xffff), mt_rand(0, 0xffff)
-
-		);
-	}
+    public function UUID()
+    {
+        return sprintf('%04x%04x-%04x-%04x-%04x-%04x%04x%04x',
+            mt_rand(0, 0xffff), mt_rand(0, 0xffff),
+            mt_rand(0, 0xffff),
+            mt_rand(0, 0x0fff) | 0x4000,
+            mt_rand(0, 0x3fff) | 0x8000,
+            mt_rand(0, 0xffff), mt_rand(0, 0xffff), mt_rand(0, 0xffff)
+        );
+    }
 
     protected function parseUid($feedData, $fieldInfo): DateTime|bool|array|Carbon|string|null
     {
@@ -543,7 +525,7 @@ class CommerceOrder extends Element
                if( $node == 'usedefault' ){
                    return $value;
                }else{
-                   $formatting="Y-m-d\\TH:";
+                   $formatting="Y-m-d\\TH:i:s";
                    $dateValue = DateHelper::parseString($value, $formatting);
                     if ($dateValue instanceof Carbon) {
                         $dateValue = $dateValue->toDateTime();
@@ -561,7 +543,7 @@ class CommerceOrder extends Element
                if( $node == 'usedefault' ){
                    return $value;
                }else{
-                   $formatting="Y-m-d\\TH:";
+                   $formatting="Y-m-d\\TH:i:s";
                    $dateValue = DateHelper::parseString($value, $formatting);
                     if ($dateValue instanceof Carbon) {
                         $dateValue = $dateValue->toDateTime();
@@ -580,7 +562,7 @@ class CommerceOrder extends Element
                if( $node == 'usedefault' ){
                    return $value;
                }else{
-                   $formatting="Y-m-d\\TH:";
+                   $formatting="Y-m-d\\TH:i:s";
                    $dateValue = DateHelper::parseString($value, $formatting);
                     if ($dateValue instanceof Carbon) {
                         $dateValue = $dateValue->toDateTime();
@@ -594,9 +576,9 @@ class CommerceOrder extends Element
     {
 
          $value = $this->fetchSimpleValue($feedData, $fieldInfo);
-         $gaetway = Commerce::getInstance()->getGateways()->getGatewayByHandle($value);
-         if( isset($gaetway->id) ){
-             return $gaetway->id;
+         $gateway = Commerce::getInstance()->getGateways()->getGatewayByHandle($value);
+         if( isset($gateway->id) ){
+             return $gateway->id;
          }
         return $value;
     }

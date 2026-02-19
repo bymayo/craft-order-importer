@@ -436,9 +436,7 @@
         required: true,
         default: {
             type: 'select',
-            options: [
-                { label: 'General', value: '1' }
-            ],
+            options: craft.commerce.taxCategories.allTaxCategories|map(c => { label: c.name, value: c.id }),
         },
     },
     {
@@ -447,9 +445,7 @@
         required: true,
         default: {
             type: 'select',
-            options: [
-                { label: 'General', value: '1' }
-            ],
+            options: craft.commerce.shippingCategories.allShippingCategories|map(c => { label: c.name, value: c.id }),
         },
     },
 ] %}

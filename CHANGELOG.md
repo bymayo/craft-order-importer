@@ -4,6 +4,18 @@
 
 ### Added
 - Automatically create users/customers from the order email address if they don't already exist in the CMS [#4](https://github.com/bymayo/craft-order-importer/issues/4)
+- Tax and Shipping Category defaults now dynamically populated from Commerce
+
+### Fixed
+- Transaction field attributes not being extracted due to prefix mismatch
+- Line items and transactions all receiving the same values instead of per-item values
+- Transaction hash using weak randomness, now uses Craft's secure random string
+- Hardcoded `userId` in transactions now uses the order's customer ID
+- Incomplete date format string missing minutes and seconds
+- Description value leaking between adjustment types when field not mapped
+- Misspelled `$gaetway` variable in `parseGatewayId`
+- Email typo in composer.json support contact
+- Added error logging for failed database operations
 
 ## 1.0.1 - 2026-02-19
 
