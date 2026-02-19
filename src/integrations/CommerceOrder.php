@@ -14,6 +14,7 @@ use craft\commerce\elements\Order;
 use craft\commerce\models\LineItem;
 use craft\commerce\Plugin as Commerce;
 use craft\commerce\records\Transaction as TransactionRecord;
+use craft\elements\User;
 
 use craft\feedme\base\Element;
 use craft\feedme\events\FeedProcessEvent;
@@ -113,6 +114,7 @@ class CommerceOrder extends Element
 
             $this->_parseBillingAddress($event);
             $this->_parseShippingAddress($event);
+            $this->_parseCustomer($event);
 
         });
 
@@ -306,6 +308,44 @@ class CommerceOrder extends Element
 
     }
 
+    private function _parseCustomer($event): void
+    {
+
+        $feed = $event->feed;
+        $element = $event->element;
+
+        // Get email directly from feed data
+        $email = null;
+        if (isset($feed['fieldMapping']['email'])) {
+            $emailFieldInfo = $feed['fieldMapping']['email'];
+            $email = $this->fetchSimpleValue($event->feedData, $emailFieldInfo);
+        }
+
+        if (!$email) {
+            OrderImporter::log('_parseCustomer: No email found in feed data');
+            return;
+        }
+
+        // Find existing user by email, or create a new one
+        $user = User::find()->email($email)->one();
+
+        if (!$user) {
+            $user = new User();
+            $user->email = $email;
+            $user->username = $email;
+
+            if (!Craft::$app->getElements()->saveElement($user, false)) {
+                OrderImporter::log('Unable to create user for email: ' . $email);
+                return;
+            }
+
+            OrderImporter::log('Created user for email: ' . $email);
+        }
+
+        $element->customerId = $user->id;
+
+    }
+
     private function _parseTransactions($event): void
     {
 
@@ -436,21 +476,12 @@ class CommerceOrder extends Element
     }
 
     /**
-     * @Generate Customer ID By Mapping Field
+     * Parse Customer ID from feed. If the customer doesn't exist,
+     * _parseCustomer() will find or create them by email before save.
      */
     protected function parseCustomerId($feedData, $fieldInfo): DateTime|bool|array|Carbon|string|null
     {
-
-        $value = $this->fetchSimpleValue($feedData, $fieldInfo);
-
-        $node = $fieldInfo['node'];
-        if($node == 'usedefault'){
-            return $value;
-        } else {
-            // @TODO: Check to see if customer exists, if not create them
-            return $value;
-        }
-        
+        return $this->fetchSimpleValue($feedData, $fieldInfo);
     }
 
     /**
