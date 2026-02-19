@@ -132,7 +132,7 @@
     },
     {
         name: 'First Name',
-        handle: 'billingAddressFirstName',
+        handle: 'billingAddress-firstName',
         default: {
             type: 'text'
         }
@@ -697,7 +697,7 @@
     </tbody>
 </table>
 
-{% set layoutId = feed.elementGroup[feed.elementType] %}
+{% set layoutId = feed.elementGroup[feed.elementType] ?? null %}
 
 {% if layoutId %}
 
