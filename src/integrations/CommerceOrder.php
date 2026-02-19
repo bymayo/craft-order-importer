@@ -114,12 +114,12 @@ class CommerceOrder extends Element
 
             $this->_parseBillingAddress($event);
             $this->_parseShippingAddress($event);
-            $this->_parseCustomer($event);
 
         });
 
         Event::on(Process::class, Process::EVENT_STEP_AFTER_ELEMENT_SAVE, function(FeedProcessEvent $event) {
 
+            $this->_parseCustomer($event);
             $this->_parseLineItems($event);
             $this->_parseAdjustments($event);
             $this->_parseTransactions($event); // Should come after all costs
@@ -342,7 +342,10 @@ class CommerceOrder extends Element
             OrderImporter::log('Created user for email: ' . $email);
         }
 
-        $element->customerId = $user->id;
+        // Update customerId directly in the database since the order is already saved
+        Craft::$app->getDb()->createCommand()
+            ->update('{{%commerce_orders}}', ['customerId' => $user->id], ['id' => $element->id])
+            ->execute();
 
     }
 
