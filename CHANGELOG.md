@@ -1,5 +1,10 @@
 # Release Notes for Order Importer
 
+## 1.0.5 - 2026-02-20
+
+### Fixed
+- Duplicate line items, adjustments and transactions when updating an existing order
+
 ## 1.0.4 - 2026-02-20
 
 ### Fixed

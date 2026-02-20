@@ -152,6 +152,11 @@ class CommerceOrder extends Element
     private function _parseAdjustments($event, Order $order): void
     {
 
+        // Remove existing adjustments before re-importing
+        Craft::$app->getDb()->createCommand()
+            ->delete('{{%commerce_orderadjustments}}', ['orderId' => $order->id])
+            ->execute();
+
         $adjustments = [
             [
                 'amountField' => 'shipping-total',
@@ -242,6 +247,11 @@ class CommerceOrder extends Element
 
     private function _parseLineItems($event, Order $order): void
     {
+
+        // Remove existing line items before re-importing
+        Craft::$app->getDb()->createCommand()
+            ->delete('{{%commerce_lineitems}}', ['orderId' => $order->id])
+            ->execute();
 
         $feed = $event->feed;
 
@@ -379,6 +389,11 @@ class CommerceOrder extends Element
 
     private function _parseTransactions($event, Order $order): void
     {
+
+        // Remove existing transactions before re-importing
+        Craft::$app->getDb()->createCommand()
+            ->delete('{{%commerce_transactions}}', ['orderId' => $order->id])
+            ->execute();
 
         $feed = $event->feed;
 
