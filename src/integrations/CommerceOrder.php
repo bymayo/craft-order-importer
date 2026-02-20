@@ -8,6 +8,7 @@ use bymayo\craftorderimporter\elements\CommerceOrder as CommerceOrderElement;
 use Craft;
 use craft\base\ElementInterface;
 use craft\db\Query;
+use craft\helpers\StringHelper;
 
 use craft\commerce\elements;
 use craft\commerce\elements\Order;
@@ -511,36 +512,21 @@ class CommerceOrder extends Element
         return $this->fetchSimpleValue($feedData, $fieldInfo);
     }
 
-    /**
-     * @Random Generate UID For Order
-     */
-
-    public function UUID()
-    {
-        return sprintf('%04x%04x-%04x-%04x-%04x-%04x%04x%04x',
-            mt_rand(0, 0xffff), mt_rand(0, 0xffff),
-            mt_rand(0, 0xffff),
-            mt_rand(0, 0x0fff) | 0x4000,
-            mt_rand(0, 0x3fff) | 0x8000,
-            mt_rand(0, 0xffff), mt_rand(0, 0xffff), mt_rand(0, 0xffff)
-        );
-    }
-
     protected function parseUid($feedData, $fieldInfo): string
     {
-        return $this->UUID();
+        return StringHelper::UUID();
     }
 
     protected function parseNumber($feedData, $fieldInfo): string|null
     {
         $value = $this->fetchSimpleValue($feedData, $fieldInfo);
-        return md5($value);
+        return substr(hash('sha256', $value), 0, 32);
     }
 
     protected function parseReference($feedData, $fieldInfo): string|null
     {
         $value = $this->fetchSimpleValue($feedData, $fieldInfo);
-        return substr(md5($value), 0, 7);
+        return substr(hash('sha256', $value), 0, 7);
     }
 
     protected function parseDateOrdered($feedData, $fieldInfo): DateTime|string|null

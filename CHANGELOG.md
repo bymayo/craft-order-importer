@@ -18,12 +18,13 @@
 - Reduced redundant database queries by fetching order once per import step
 - Gateway and order status lookups are now cached across orders during import
 - Line item quantity validated as positive integer
+- UUID generation now uses Craft's `StringHelper::UUID()` instead of insecure `mt_rand()`
+- Order number and reference hashing upgraded from MD5 to SHA-256
 
 ## 1.0.3 - 2026-02-19
 
 ### Fixed
 
-- Transaction field attributes not being extracted due to prefix mismatch
 - Line items and transactions all receiving the same values instead of per-item values
 - Transaction hash using weak randomness, now uses Craft's secure random string
 - Hardcoded `userId` in transactions now uses the order's customer ID
