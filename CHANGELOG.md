@@ -6,7 +6,18 @@
 
 - Removed unused variables (`$lineItemsObjects`, `$transactionsObjects`)
 - Removed dead code in `parseUid()` fetching a value that was never used
-- Various code inconsitencys
+- Crash when adjustment name field mapping is missing
+- Billing/shipping address causing undefined key warnings when no address fields mapped
+- `parseGatewayId` returning raw unvalidated input when gateway not found
+- Line items with missing `purchasableId` no longer cause errors
+- Various code inconsistencies
+
+### Improved
+
+- Logging now uses Craft's `MonologTarget`
+- Reduced redundant database queries by fetching order once per import step
+- Gateway and order status lookups are now cached across orders during import
+- Line item quantity validated as positive integer
 
 ## 1.0.3 - 2026-02-19
 

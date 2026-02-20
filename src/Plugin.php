@@ -6,11 +6,12 @@ use bymayo\craftorderimporter\integrations\CommerceOrder;
 
 use Craft;
 use craft\base\Plugin as BasePlugin;
-use craft\helpers\FileHelper;
+use craft\log\MonologTarget;
 
 use craft\feedme\events\RegisterFeedMeElementsEvent;
 use craft\feedme\services\Elements;
 
+use Psr\Log\LogLevel;
 use yii\base\Event;
 
 /**
@@ -29,11 +30,12 @@ class Plugin extends BasePlugin
 
     public static function log($message)
     {
+        Craft::info($message, 'order-importer');
+    }
 
-        $file = Craft::getAlias('@storage/logs/order-importer.log');
-        $log = date('Y-m-d H:i:s'). ' ' . $message . "\n";
-        FileHelper::writeToFile($file, $log, ['append' => true]);
-
+    public static function warn($message)
+    {
+        Craft::warning($message, 'order-importer');
     }
 
     public static function config(): array
@@ -47,9 +49,22 @@ class Plugin extends BasePlugin
     {
         parent::init();
 
+        $this->_registerLogTarget();
+
         Craft::$app->onInit(function() {
             $this->attachEventHandlers();
         });
+    }
+
+    private function _registerLogTarget(): void
+    {
+        Craft::getLogger()->dispatcher->targets[] = new MonologTarget([
+            'name' => 'order-importer',
+            'categories' => ['order-importer'],
+            'level' => LogLevel::INFO,
+            'logContext' => false,
+            'allowLineBreaks' => false,
+        ]);
     }
 
     private function attachEventHandlers(): void
@@ -59,8 +74,6 @@ class Plugin extends BasePlugin
             Elements::class, 
             Elements::EVENT_REGISTER_FEED_ME_ELEMENTS, 
             function(RegisterFeedMeElementsEvent $e) {
-
-                $this->log('Registering CommerceOrder element');
 
                 $e->elements[] = CommerceOrder::class;
             }

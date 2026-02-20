@@ -46,6 +46,9 @@ class CommerceOrder extends Element
 
     private const DATE_FORMAT = "Y-m-d\\TH:i:s";
 
+    private array $_gatewayCache = [];
+    private array $_orderStatusCache = [];
+
     /**
      * @var string
      */
@@ -121,10 +124,23 @@ class CommerceOrder extends Element
 
         Event::on(Process::class, Process::EVENT_STEP_AFTER_ELEMENT_SAVE, function(FeedProcessEvent $event) {
 
+            // Parse customer first (updates DB directly)
             $this->_parseCustomer($event);
-            $this->_parseLineItems($event);
-            $this->_parseAdjustments($event);
-            $this->_parseTransactions($event); // Should come after all costs
+
+            // Fetch order once after customer is set, pass to remaining methods
+            $order = Commerce::getInstance()->getOrders()->getOrderById($event->element->id);
+
+            if (!$order) {
+                OrderImporter::warn('Order not found after save for element ' . $event->element->id);
+                return;
+            }
+
+            $this->_parseLineItems($event, $order);
+            $this->_parseAdjustments($event, $order);
+
+            // Re-fetch order so transaction totals reflect saved line items/adjustments
+            $freshOrder = Commerce::getInstance()->getOrders()->getOrderById($event->element->id);
+            $this->_parseTransactions($event, $freshOrder ?? $order); // Should come after all costs
             $this->_parseShippingMethod($event); // Should always come last
 
         });
@@ -132,7 +148,7 @@ class CommerceOrder extends Element
     }
 
     
-    private function _parseAdjustments($event): void
+    private function _parseAdjustments($event, Order $order): void
     {
 
         $adjustments = [
@@ -155,8 +171,6 @@ class CommerceOrder extends Element
             ]
         ];
 
-        $order = Commerce::getInstance()->getOrders()->getOrderById($event->element->id);
-
         foreach ($adjustments as $adjustment) {
 
             $feed = $event->feed;
@@ -167,14 +181,20 @@ class CommerceOrder extends Element
 
                 $amountFieldInfo = $feed['fieldMapping'][$amountField];
                 $amountValue = $this->fetchSimpleValue($event->feedData, $amountFieldInfo);
-                
+
                 $nameField = $adjustment['nameField'];
+
+                if (!isset($feed['fieldMapping'][$nameField])) {
+                    OrderImporter::warn('Missing name field mapping for ' . $adjustment['type'] . ' adjustment on order ' . $order->id);
+                    continue;
+                }
+
                 $nameFieldInfo = $feed['fieldMapping'][$nameField];
                 $nameValue = $this->fetchSimpleValue($event->feedData, $nameFieldInfo);
 
+                $descriptionValue = null;
                 if (isset($adjustment['descriptionField']) && isset($feed['fieldMapping'][$adjustment['descriptionField']])) {
-                    $descriptionField = $adjustment['descriptionField'];
-                    $descriptionFieldInfo = $feed['fieldMapping'][$descriptionField];
+                    $descriptionFieldInfo = $feed['fieldMapping'][$adjustment['descriptionField']];
                     $descriptionValue = $this->fetchSimpleValue($event->feedData, $descriptionFieldInfo);
                 }
 
@@ -186,7 +206,7 @@ class CommerceOrder extends Element
                     'sourceSnapshot' => json_encode([])
                 ];
 
-                if (isset($descriptionValue)) {
+                if ($descriptionValue !== null) {
                     $params['description'] = $descriptionValue;
                 }
 
@@ -194,7 +214,7 @@ class CommerceOrder extends Element
                     ->createCommand()
                     ->insert('{{%commerce_orderadjustments}}', $params)
                     ->execute()) {
-                    OrderImporter::log('Failed to insert ' . $adjustment['type'] . ' adjustment for order ' . $order->id);
+                    OrderImporter::warn('Failed to insert ' . $adjustment['type'] . ' adjustment for order ' . $order->id);
                 }
 
             }
@@ -219,14 +239,12 @@ class CommerceOrder extends Element
 
     }
 
-    private function _parseLineItems($event): void
+    private function _parseLineItems($event, Order $order): void
     {
 
         $feed = $event->feed;
 
         $lineItems = array();
-
-        $order = Commerce::getInstance()->getOrders()->getOrderById($event->element->id);
 
         foreach ($feed['fieldMapping'] as $fieldHandle => $fieldInfo) {
 
@@ -241,28 +259,29 @@ class CommerceOrder extends Element
                     $lineItems[$i][$attribute] = $attributeValue[$i] ?? null;
                     $lineItems[$i]['orderId'] = $order->id;
                 }
-
-                $feed['fieldMapping']['lineItems'] = $lineItems;
-
-                unset($feed['fieldMapping'][$fieldHandle]);
             }
 
         }
 
         foreach ($lineItems as $lineItemData) {
 
+            if (empty($lineItemData['purchasableId'])) {
+                OrderImporter::warn('Skipping line item with missing purchasableId for order ' . $order->id);
+                continue;
+            }
+
             $lineItem = Commerce::getInstance()->getLineItems()->create(
-                $order, 
+                $order,
                 [
                     'purchasableId' => $lineItemData['purchasableId'],
                     'options' => $lineItemData['options'] ?? [],
-                    'qty' => $lineItemData['qty'] ?? 1,
+                    'qty' => max(1, (int) ($lineItemData['qty'] ?? 1)),
                     'note' => $lineItemData['note'] ?? ''
                 ]
             );
 
             $lineItem->setOrder($order);
-            
+
             Commerce::getInstance()->getLineItems()->saveLineItem($lineItem, false);
 
         }
@@ -273,18 +292,18 @@ class CommerceOrder extends Element
     {
 
         $feed = $event->feed;
+        $billingAddress = [];
 
         foreach ($feed['fieldMapping'] as $fieldHandle => $fieldInfo) {
             if (str_contains($fieldHandle, 'billingAddress-')) {
-
                 $attribute = str_replace('billingAddress-', '', $fieldHandle);
-                $attributeValue = DataHelper::fetchSimpleValue($event->feedData, $fieldInfo);
-                $feed['fieldMapping']['billingAddress'][$attribute] = $attributeValue;
-                unset($feed['fieldMapping'][$fieldHandle]);
+                $billingAddress[$attribute] = DataHelper::fetchSimpleValue($event->feedData, $fieldInfo);
             }
         }
 
-        $event->element->billingAddress = $feed['fieldMapping']['billingAddress'];
+        if (!empty($billingAddress)) {
+            $event->element->billingAddress = $billingAddress;
+        }
 
     }
 
@@ -292,18 +311,18 @@ class CommerceOrder extends Element
     {
 
         $feed = $event->feed;
+        $shippingAddress = [];
 
         foreach ($feed['fieldMapping'] as $fieldHandle => $fieldInfo) {
             if (str_contains($fieldHandle, 'shippingAddress-')) {
-
                 $attribute = str_replace('shippingAddress-', '', $fieldHandle);
-                $attributeValue = DataHelper::fetchSimpleValue($event->feedData, $fieldInfo);
-                $feed['fieldMapping']['shippingAddress'][$attribute] = $attributeValue;
-                unset($feed['fieldMapping'][$fieldHandle]);
+                $shippingAddress[$attribute] = DataHelper::fetchSimpleValue($event->feedData, $fieldInfo);
             }
         }
 
-        $event->element->shippingAddress = $feed['fieldMapping']['shippingAddress'];
+        if (!empty($shippingAddress)) {
+            $event->element->shippingAddress = $shippingAddress;
+        }
 
     }
 
@@ -321,7 +340,7 @@ class CommerceOrder extends Element
         }
 
         if (!$email) {
-            OrderImporter::log('_parseCustomer: No email found in feed data');
+            OrderImporter::log('_parseCustomer: No email found in feed data for order ' . $element->id);
             return;
         }
 
@@ -333,12 +352,21 @@ class CommerceOrder extends Element
             $user->email = $email;
             $user->username = $email;
 
-            if (!Craft::$app->getElements()->saveElement($user, false)) {
-                OrderImporter::log('Unable to create user for email: ' . $email);
-                return;
+            try {
+                if (!Craft::$app->getElements()->saveElement($user, false)) {
+                    OrderImporter::warn('Unable to create customer for order ' . $element->id);
+                    return;
+                }
+            } catch (\Throwable $e) {
+                // Race condition: another process may have created the user concurrently
+                $user = User::find()->email($email)->one();
+                if (!$user) {
+                    OrderImporter::warn('Unable to create or find customer for order ' . $element->id);
+                    return;
+                }
             }
 
-            OrderImporter::log('Created user for email: ' . $email);
+            OrderImporter::log('Created customer for order ' . $element->id);
         }
 
         // Update customerId directly in the database since the order is already saved
@@ -348,14 +376,12 @@ class CommerceOrder extends Element
 
     }
 
-    private function _parseTransactions($event): void
+    private function _parseTransactions($event, Order $order): void
     {
 
         $feed = $event->feed;
 
         $transactions = array();
-
-        $order = Commerce::getInstance()->getOrders()->getOrderById($event->element->id);
 
         foreach ($feed['fieldMapping'] as $fieldHandle => $fieldInfo) {
 
@@ -394,7 +420,7 @@ class CommerceOrder extends Element
                 'reference' => '',
             ])
             ->execute()) {
-            OrderImporter::log('Failed to insert transaction for order ' . $order->id);
+            OrderImporter::warn('Failed to insert transaction for order ' . $order->id);
         }
 
         // $transaction = Commerce::getInstance()->getTransactions()->createTransaction($order, null, TransactionRecord::TYPE_PURCHASE);
@@ -461,13 +487,19 @@ class CommerceOrder extends Element
     {
         $value = $this->fetchSimpleValue($feedData, $fieldInfo);
 
+        if (array_key_exists($value, $this->_orderStatusCache)) {
+            return $this->_orderStatusCache[$value];
+        }
+
         if (is_numeric($value)) {
             $orderStatus = Commerce::getInstance()->getOrderStatuses()->getOrderStatusById($value);
         } else {
             $orderStatus = Commerce::getInstance()->getOrderStatuses()->getOrderStatusByHandle($value);
         }
 
-        return $orderStatus->id;
+        $result = $orderStatus?->id;
+        $this->_orderStatusCache[$value] = $result;
+        return $result;
     }
 
     /**
@@ -568,16 +600,18 @@ class CommerceOrder extends Element
         return null;
     }
 
-    protected function parseGatewayId($feedData, $fieldInfo): int|string|null
+    protected function parseGatewayId($feedData, $fieldInfo): int|null
     {
         $value = $this->fetchSimpleValue($feedData, $fieldInfo);
-        $gateway = Commerce::getInstance()->getGateways()->getGatewayByHandle($value);
 
-        if (isset($gateway->id)) {
-            return $gateway->id;
+        if (array_key_exists($value, $this->_gatewayCache)) {
+            return $this->_gatewayCache[$value];
         }
 
-        return $value;
+        $gateway = Commerce::getInstance()->getGateways()->getGatewayByHandle($value);
+        $result = $gateway?->id;
+        $this->_gatewayCache[$value] = $result;
+        return $result;
     }
 
 }
