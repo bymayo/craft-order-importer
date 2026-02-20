@@ -1,5 +1,13 @@
 # Release Notes for Order Importer
 
+## 1.0.4 - 2026-02-20
+
+### Fixed
+
+- Removed unused variables (`$lineItemsObjects`, `$transactionsObjects`)
+- Removed dead code in `parseUid()` fetching a value that was never used
+- Various code inconsitencys
+
 ## 1.0.3 - 2026-02-19
 
 ### Fixed

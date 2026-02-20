@@ -44,6 +44,8 @@ class CommerceOrder extends Element
     // Properties
     // =========================================================================
 
+    private const DATE_FORMAT = "Y-m-d\\TH:i:s";
+
     /**
      * @var string
      */
@@ -223,7 +225,6 @@ class CommerceOrder extends Element
         $feed = $event->feed;
 
         $lineItems = array();
-        $lineItemsObjects = array();
 
         $order = Commerce::getInstance()->getOrders()->getOrderById($event->element->id);
 
@@ -262,8 +263,6 @@ class CommerceOrder extends Element
 
             $lineItem->setOrder($order);
             
-            $lineItemsObjects[] = $lineItem;
-
             Commerce::getInstance()->getLineItems()->saveLineItem($lineItem, false);
 
         }
@@ -355,7 +354,6 @@ class CommerceOrder extends Element
         $feed = $event->feed;
 
         $transactions = array();
-        $transactionsObjects = array();
 
         $order = Commerce::getInstance()->getOrders()->getOrderById($event->element->id);
 
@@ -459,16 +457,16 @@ class CommerceOrder extends Element
         return [];
     }
 
-    protected function parseOrderStatusId($feedData, $fieldInfo): DateTime|bool|array|Carbon|string|null
+    protected function parseOrderStatusId($feedData, $fieldInfo): int|string|null
     {
         $value = $this->fetchSimpleValue($feedData, $fieldInfo);
-        
+
         if (is_numeric($value)) {
             $orderStatus = Commerce::getInstance()->getOrderStatuses()->getOrderStatusById($value);
         } else {
             $orderStatus = Commerce::getInstance()->getOrderStatuses()->getOrderStatusByHandle($value);
         }
-        
+
         return $orderStatus->id;
     }
 
@@ -476,7 +474,7 @@ class CommerceOrder extends Element
      * Parse Customer ID from feed. If the customer doesn't exist,
      * _parseCustomer() will find or create them by email before save.
      */
-    protected function parseCustomerId($feedData, $fieldInfo): DateTime|bool|array|Carbon|string|null
+    protected function parseCustomerId($feedData, $fieldInfo): int|string|null
     {
         return $this->fetchSimpleValue($feedData, $fieldInfo);
     }
@@ -496,90 +494,89 @@ class CommerceOrder extends Element
         );
     }
 
-    protected function parseUid($feedData, $fieldInfo): DateTime|bool|array|Carbon|string|null
+    protected function parseUid($feedData, $fieldInfo): string
     {
-         $value = $this->fetchSimpleValue($feedData, $fieldInfo);
-         $values =  $this->UUID();
-         return $values;
+        return $this->UUID();
     }
 
-    protected function parseNumber($feedData, $fieldInfo): DateTime|bool|array|Carbon|string|null
-    {
-         $value = $this->fetchSimpleValue($feedData, $fieldInfo);
-         $values =  MD5( $value );
-         return $values;
-    }
-
-    protected function parseReference($feedData, $fieldInfo): DateTime|bool|array|Carbon|string|null
-    {
-         $value = $this->fetchSimpleValue($feedData, $fieldInfo);
-         $values =  substr( MD5( $value ), 0, 7);
-         return $values;
-    }
-
-    protected function parseDateOrdered($feedData, $fieldInfo): DateTime|bool|array|Carbon|string|null
+    protected function parseNumber($feedData, $fieldInfo): string|null
     {
         $value = $this->fetchSimpleValue($feedData, $fieldInfo);
-         if( $fieldInfo ){
-             $node = $fieldInfo['node'];
-               if( $node == 'usedefault' ){
-                   return $value;
-               }else{
-                   $formatting="Y-m-d\\TH:i:s";
-                   $dateValue = DateHelper::parseString($value, $formatting);
-                    if ($dateValue instanceof Carbon) {
-                        $dateValue = $dateValue->toDateTime();
-                        return $dateValue;
-                    }
-               }
-         }
+        return md5($value);
     }
 
-    protected function parseDateAuthorized($feedData, $fieldInfo): DateTime|bool|array|Carbon|string|null
+    protected function parseReference($feedData, $fieldInfo): string|null
     {
         $value = $this->fetchSimpleValue($feedData, $fieldInfo);
-         if( $fieldInfo ){
-             $node = $fieldInfo['node'];
-               if( $node == 'usedefault' ){
-                   return $value;
-               }else{
-                   $formatting="Y-m-d\\TH:i:s";
-                   $dateValue = DateHelper::parseString($value, $formatting);
-                    if ($dateValue instanceof Carbon) {
-                        $dateValue = $dateValue->toDateTime();
-                        return $dateValue;
-                    }
-               }
-         }
+        return substr(md5($value), 0, 7);
     }
 
-    protected function parseDatePaid($feedData, $fieldInfo): DateTime|bool|array|Carbon|string|null
+    protected function parseDateOrdered($feedData, $fieldInfo): DateTime|string|null
     {
         $value = $this->fetchSimpleValue($feedData, $fieldInfo);
 
-         if( $fieldInfo ){
-             $node = $fieldInfo['node'];
-               if( $node == 'usedefault' ){
-                   return $value;
-               }else{
-                   $formatting="Y-m-d\\TH:i:s";
-                   $dateValue = DateHelper::parseString($value, $formatting);
-                    if ($dateValue instanceof Carbon) {
-                        $dateValue = $dateValue->toDateTime();
-                        return $dateValue;
-                    }
-               }
-         }
+        if ($fieldInfo) {
+            $node = $fieldInfo['node'];
+            if ($node === 'usedefault') {
+                return $value;
+            } else {
+                $dateValue = DateHelper::parseString($value, self::DATE_FORMAT);
+                if ($dateValue instanceof Carbon) {
+                    return $dateValue->toDateTime();
+                }
+            }
+        }
+
+        return null;
     }
 
-    protected function parseGatewayId($feedData, $fieldInfo): DateTime|bool|array|Carbon|string|null
+    protected function parseDateAuthorized($feedData, $fieldInfo): DateTime|string|null
     {
+        $value = $this->fetchSimpleValue($feedData, $fieldInfo);
 
-         $value = $this->fetchSimpleValue($feedData, $fieldInfo);
-         $gateway = Commerce::getInstance()->getGateways()->getGatewayByHandle($value);
-         if( isset($gateway->id) ){
-             return $gateway->id;
-         }
+        if ($fieldInfo) {
+            $node = $fieldInfo['node'];
+            if ($node === 'usedefault') {
+                return $value;
+            } else {
+                $dateValue = DateHelper::parseString($value, self::DATE_FORMAT);
+                if ($dateValue instanceof Carbon) {
+                    return $dateValue->toDateTime();
+                }
+            }
+        }
+
+        return null;
+    }
+
+    protected function parseDatePaid($feedData, $fieldInfo): DateTime|string|null
+    {
+        $value = $this->fetchSimpleValue($feedData, $fieldInfo);
+
+        if ($fieldInfo) {
+            $node = $fieldInfo['node'];
+            if ($node === 'usedefault') {
+                return $value;
+            } else {
+                $dateValue = DateHelper::parseString($value, self::DATE_FORMAT);
+                if ($dateValue instanceof Carbon) {
+                    return $dateValue->toDateTime();
+                }
+            }
+        }
+
+        return null;
+    }
+
+    protected function parseGatewayId($feedData, $fieldInfo): int|string|null
+    {
+        $value = $this->fetchSimpleValue($feedData, $fieldInfo);
+        $gateway = Commerce::getInstance()->getGateways()->getGatewayByHandle($value);
+
+        if (isset($gateway->id)) {
+            return $gateway->id;
+        }
+
         return $value;
     }
 
