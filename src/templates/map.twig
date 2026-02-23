@@ -132,7 +132,7 @@
     },
     {
         name: 'First Name',
-        handle: 'billingAddressFirstName',
+        handle: 'billingAddress-firstName',
         default: {
             type: 'text'
         }
@@ -436,9 +436,7 @@
         required: true,
         default: {
             type: 'select',
-            options: [
-                { label: 'General', value: '1' }
-            ],
+            options: craft.commerce.taxCategories.allTaxCategories|map(c => { label: c.name, value: c.id }),
         },
     },
     {
@@ -447,9 +445,7 @@
         required: true,
         default: {
             type: 'select',
-            options: [
-                { label: 'General', value: '1' }
-            ],
+            options: craft.commerce.shippingCategories.allShippingCategories|map(c => { label: c.name, value: c.id }),
         },
     },
 ] %}
@@ -697,7 +693,7 @@
     </tbody>
 </table>
 
-{% set layoutId = feed.elementGroup[feed.elementType] %}
+{% set layoutId = feed.elementGroup[feed.elementType] ?? null %}
 
 {% if layoutId %}
 

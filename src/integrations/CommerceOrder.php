@@ -8,12 +8,14 @@ use bymayo\craftorderimporter\elements\CommerceOrder as CommerceOrderElement;
 use Craft;
 use craft\base\ElementInterface;
 use craft\db\Query;
+use craft\helpers\StringHelper;
 
 use craft\commerce\elements;
 use craft\commerce\elements\Order;
 use craft\commerce\models\LineItem;
 use craft\commerce\Plugin as Commerce;
 use craft\commerce\records\Transaction as TransactionRecord;
+use craft\elements\User;
 
 use craft\feedme\base\Element;
 use craft\feedme\events\FeedProcessEvent;
@@ -42,6 +44,11 @@ class CommerceOrder extends Element
 {
     // Properties
     // =========================================================================
+
+    private const DATE_FORMAT = "Y-m-d\\TH:i:s";
+
+    private array $_gatewayCache = [];
+    private array $_orderStatusCache = [];
 
     /**
      * @var string
@@ -118,9 +125,23 @@ class CommerceOrder extends Element
 
         Event::on(Process::class, Process::EVENT_STEP_AFTER_ELEMENT_SAVE, function(FeedProcessEvent $event) {
 
-            $this->_parseLineItems($event);
-            $this->_parseAdjustments($event);
-            $this->_parseTransactions($event); // Should come after all costs
+            // Parse customer first (updates DB directly)
+            $this->_parseCustomer($event);
+
+            // Fetch order once after customer is set, pass to remaining methods
+            $order = Commerce::getInstance()->getOrders()->getOrderById($event->element->id);
+
+            if (!$order) {
+                OrderImporter::warn('Order not found after save for element ' . $event->element->id);
+                return;
+            }
+
+            $this->_parseLineItems($event, $order);
+            $this->_parseAdjustments($event, $order);
+
+            // Re-fetch order so transaction totals reflect saved line items/adjustments
+            $freshOrder = Commerce::getInstance()->getOrders()->getOrderById($event->element->id);
+            $this->_parseTransactions($event, $freshOrder ?? $order); // Should come after all costs
             $this->_parseShippingMethod($event); // Should always come last
 
         });
@@ -128,8 +149,13 @@ class CommerceOrder extends Element
     }
 
     
-    private function _parseAdjustments($event): void
+    private function _parseAdjustments($event, Order $order): void
     {
+
+        // Remove existing adjustments before re-importing
+        Craft::$app->getDb()->createCommand()
+            ->delete('{{%commerce_orderadjustments}}', ['orderId' => $order->id])
+            ->execute();
 
         $adjustments = [
             [
@@ -151,8 +177,6 @@ class CommerceOrder extends Element
             ]
         ];
 
-        $order = Commerce::getInstance()->getOrders()->getOrderById($event->element->id);
-
         foreach ($adjustments as $adjustment) {
 
             $feed = $event->feed;
@@ -163,14 +187,20 @@ class CommerceOrder extends Element
 
                 $amountFieldInfo = $feed['fieldMapping'][$amountField];
                 $amountValue = $this->fetchSimpleValue($event->feedData, $amountFieldInfo);
-                
+
                 $nameField = $adjustment['nameField'];
+
+                if (!isset($feed['fieldMapping'][$nameField])) {
+                    OrderImporter::warn('Missing name field mapping for ' . $adjustment['type'] . ' adjustment on order ' . $order->id);
+                    continue;
+                }
+
                 $nameFieldInfo = $feed['fieldMapping'][$nameField];
                 $nameValue = $this->fetchSimpleValue($event->feedData, $nameFieldInfo);
 
-                if (isset($adjustment['descriptionField'])) {
-                    $descriptionField = $adjustment['descriptionField'];
-                    $descriptionFieldInfo = $feed['fieldMapping'][$descriptionField];
+                $descriptionValue = null;
+                if (isset($adjustment['descriptionField']) && isset($feed['fieldMapping'][$adjustment['descriptionField']])) {
+                    $descriptionFieldInfo = $feed['fieldMapping'][$adjustment['descriptionField']];
                     $descriptionValue = $this->fetchSimpleValue($event->feedData, $descriptionFieldInfo);
                 }
 
@@ -182,14 +212,16 @@ class CommerceOrder extends Element
                     'sourceSnapshot' => json_encode([])
                 ];
 
-                if (isset($descriptionValue)) {
+                if ($descriptionValue !== null) {
                     $params['description'] = $descriptionValue;
                 }
 
-                $results = (new \craft\db\Query())
+                if (!(new \craft\db\Query())
                     ->createCommand()
                     ->insert('{{%commerce_orderadjustments}}', $params)
-                    ->execute();
+                    ->execute()) {
+                    OrderImporter::warn('Failed to insert ' . $adjustment['type'] . ' adjustment for order ' . $order->id);
+                }
 
             }
 
@@ -213,15 +245,17 @@ class CommerceOrder extends Element
 
     }
 
-    private function _parseLineItems($event): void
+    private function _parseLineItems($event, Order $order): void
     {
+
+        // Remove existing line items before re-importing
+        Craft::$app->getDb()->createCommand()
+            ->delete('{{%commerce_lineitems}}', ['orderId' => $order->id])
+            ->execute();
 
         $feed = $event->feed;
 
         $lineItems = array();
-        $lineItemsObjects = array();
-
-        $order = Commerce::getInstance()->getOrders()->getOrderById($event->element->id);
 
         foreach ($feed['fieldMapping'] as $fieldHandle => $fieldInfo) {
 
@@ -233,34 +267,31 @@ class CommerceOrder extends Element
                 $totalLineItems = count($attributeValue);
 
                 for ($i = 0; $i < $totalLineItems; $i++) {
-                    
-                    $value = DataHelper::fetchSimpleValue($event->feedData, $fieldInfo);
-                    $lineItems[$i][$attribute] = $value;
+                    $lineItems[$i][$attribute] = $attributeValue[$i] ?? null;
                     $lineItems[$i]['orderId'] = $order->id;
                 }
-
-                $feed['fieldMapping']['lineItems'] = $lineItems;
-
-                unset($feed['fieldMapping'][$fieldHandle]);
             }
 
         }
 
         foreach ($lineItems as $lineItemData) {
 
+            if (empty($lineItemData['purchasableId'])) {
+                OrderImporter::warn('Skipping line item with missing purchasableId for order ' . $order->id);
+                continue;
+            }
+
             $lineItem = Commerce::getInstance()->getLineItems()->create(
-                $order, 
+                $order,
                 [
                     'purchasableId' => $lineItemData['purchasableId'],
                     'options' => $lineItemData['options'] ?? [],
-                    'qty' => $lineItemData['qty'] ?? 1,
+                    'qty' => max(1, (int) ($lineItemData['qty'] ?? 1)),
                     'note' => $lineItemData['note'] ?? ''
                 ]
             );
 
             $lineItem->setOrder($order);
-            
-            $lineItemsObjects[] = $lineItem;
 
             Commerce::getInstance()->getLineItems()->saveLineItem($lineItem, false);
 
@@ -272,18 +303,18 @@ class CommerceOrder extends Element
     {
 
         $feed = $event->feed;
+        $billingAddress = [];
 
         foreach ($feed['fieldMapping'] as $fieldHandle => $fieldInfo) {
             if (str_contains($fieldHandle, 'billingAddress-')) {
-
                 $attribute = str_replace('billingAddress-', '', $fieldHandle);
-                $attributeValue = DataHelper::fetchSimpleValue($event->feedData, $fieldInfo);
-                $feed['fieldMapping']['billingAddress'][$attribute] = $attributeValue;
-                unset($feed['fieldMapping'][$fieldHandle]);
+                $billingAddress[$attribute] = DataHelper::fetchSimpleValue($event->feedData, $fieldInfo);
             }
         }
 
-        $event->element->billingAddress = $feed['fieldMapping']['billingAddress'];
+        if (!empty($billingAddress)) {
+            $event->element->billingAddress = $billingAddress;
+        }
 
     }
 
@@ -291,44 +322,94 @@ class CommerceOrder extends Element
     {
 
         $feed = $event->feed;
+        $shippingAddress = [];
 
         foreach ($feed['fieldMapping'] as $fieldHandle => $fieldInfo) {
             if (str_contains($fieldHandle, 'shippingAddress-')) {
-
                 $attribute = str_replace('shippingAddress-', '', $fieldHandle);
-                $attributeValue = DataHelper::fetchSimpleValue($event->feedData, $fieldInfo);
-                $feed['fieldMapping']['shippingAddress'][$attribute] = $attributeValue;
-                unset($feed['fieldMapping'][$fieldHandle]);
+                $shippingAddress[$attribute] = DataHelper::fetchSimpleValue($event->feedData, $fieldInfo);
             }
         }
 
-        $event->element->shippingAddress = $feed['fieldMapping']['shippingAddress'];
+        if (!empty($shippingAddress)) {
+            $event->element->shippingAddress = $shippingAddress;
+        }
 
     }
 
-    private function _parseTransactions($event): void
+    private function _parseCustomer($event): void
     {
+
+        $feed = $event->feed;
+        $element = $event->element;
+
+        // Get email directly from feed data
+        $email = null;
+        if (isset($feed['fieldMapping']['email'])) {
+            $emailFieldInfo = $feed['fieldMapping']['email'];
+            $email = $this->fetchSimpleValue($event->feedData, $emailFieldInfo);
+        }
+
+        if (!$email) {
+            OrderImporter::log('_parseCustomer: No email found in feed data for order ' . $element->id);
+            return;
+        }
+
+        // Find existing user by email, or create a new one
+        $user = User::find()->email($email)->one();
+
+        if (!$user) {
+            $user = new User();
+            $user->email = $email;
+            $user->username = $email;
+
+            try {
+                if (!Craft::$app->getElements()->saveElement($user, false)) {
+                    OrderImporter::warn('Unable to create customer for order ' . $element->id);
+                    return;
+                }
+            } catch (\Throwable $e) {
+                // Race condition: another process may have created the user concurrently
+                $user = User::find()->email($email)->one();
+                if (!$user) {
+                    OrderImporter::warn('Unable to create or find customer for order ' . $element->id);
+                    return;
+                }
+            }
+
+            OrderImporter::log('Created customer for order ' . $element->id);
+        }
+
+        // Update customerId directly in the database since the order is already saved
+        Craft::$app->getDb()->createCommand()
+            ->update('{{%commerce_orders}}', ['customerId' => $user->id], ['id' => $element->id])
+            ->execute();
+
+    }
+
+    private function _parseTransactions($event, Order $order): void
+    {
+
+        // Remove existing transactions before re-importing
+        Craft::$app->getDb()->createCommand()
+            ->delete('{{%commerce_transactions}}', ['orderId' => $order->id])
+            ->execute();
 
         $feed = $event->feed;
 
         $transactions = array();
-        $transactionsObjects = array();
-
-        $order = Commerce::getInstance()->getOrders()->getOrderById($event->element->id);
 
         foreach ($feed['fieldMapping'] as $fieldHandle => $fieldInfo) {
 
             if (str_contains($fieldHandle, 'transaction-')) {
 
-                $attribute = str_replace('transactions-', '', $fieldHandle);
+                $attribute = str_replace('transaction-', '', $fieldHandle);
                 $attributeValue = DataHelper::fetchArrayValue($event->feedData, $fieldInfo);
 
                 $totalLineItems = count($attributeValue);
 
                 for ($i = 0; $i < $totalLineItems; $i++) {
-                    
-                    $value = DataHelper::fetchSimpleValue($event->feedData, $fieldInfo);
-                    $transactions[$i][$attribute] = $value;
+                    $transactions[$i][$attribute] = $attributeValue[$i] ?? null;
                 }
 
                 $feed['fieldMapping']['transactions'] = $transactions;
@@ -338,24 +419,25 @@ class CommerceOrder extends Element
             
         }
 
-        // Using Query builder for insert
-        $results = (new \craft\db\Query())
+        if (!(new \craft\db\Query())
             ->createCommand()
             ->insert('{{%commerce_transactions}}', [
                 'orderId' => $order->id,
                 'gatewayId' => $order->gatewayId,
-                'userId' => 1, // @TODO: Get the user ID from the feed
-                'hash' => md5(uniqid((string)mt_rand(), true)),
+                'userId' => $order->getCustomerId(),
+                'hash' => Craft::$app->getSecurity()->generateRandomString(32),
                 'type' => TransactionRecord::TYPE_PURCHASE,
                 'amount' => $order->getPaymentAmount(),
                 'paymentAmount' => $order->getPaymentAmount(),
                 'currency' => $order->currency,
-                'paymentRate' => '1.1000', // @TODO: Get the payment rate from the feed
+                'paymentRate' => '1.0000',
                 'status' => TransactionRecord::STATUS_SUCCESS,
                 'paymentCurrency' => $order->paymentCurrency,
                 'reference' => '',
             ])
-            ->execute();
+            ->execute()) {
+            OrderImporter::warn('Failed to insert transaction for order ' . $order->id);
+        }
 
         // $transaction = Commerce::getInstance()->getTransactions()->createTransaction($order, null, TransactionRecord::TYPE_PURCHASE);
 
@@ -414,157 +496,123 @@ class CommerceOrder extends Element
 
     public function getGroups(): array
     {
-        if (Commerce::getInstance()) {
-            return [];
-        }
-
         return [];
-
     }
 
-    protected function parseOrderStatusId($feedData, $fieldInfo): DateTime|bool|array|Carbon|string|null
+    protected function parseOrderStatusId($feedData, $fieldInfo): int|string|null
     {
         $value = $this->fetchSimpleValue($feedData, $fieldInfo);
-        
+
+        if (array_key_exists($value, $this->_orderStatusCache)) {
+            return $this->_orderStatusCache[$value];
+        }
+
         if (is_numeric($value)) {
             $orderStatus = Commerce::getInstance()->getOrderStatuses()->getOrderStatusById($value);
         } else {
             $orderStatus = Commerce::getInstance()->getOrderStatuses()->getOrderStatusByHandle($value);
         }
-        
-        return $orderStatus->id;
+
+        $result = $orderStatus?->id;
+        $this->_orderStatusCache[$value] = $result;
+        return $result;
     }
 
     /**
-     * @Generate Customer ID By Mapping Field
+     * Parse Customer ID from feed. If the customer doesn't exist,
+     * _parseCustomer() will find or create them by email before save.
      */
-    protected function parseCustomerId($feedData, $fieldInfo): DateTime|bool|array|Carbon|string|null
+    protected function parseCustomerId($feedData, $fieldInfo): int|string|null
     {
+        return $this->fetchSimpleValue($feedData, $fieldInfo);
+    }
 
+    protected function parseUid($feedData, $fieldInfo): string
+    {
+        return StringHelper::UUID();
+    }
+
+    protected function parseNumber($feedData, $fieldInfo): string|null
+    {
+        $value = $this->fetchSimpleValue($feedData, $fieldInfo);
+        return substr(hash('sha256', $value), 0, 32);
+    }
+
+    protected function parseReference($feedData, $fieldInfo): string|null
+    {
+        $value = $this->fetchSimpleValue($feedData, $fieldInfo);
+        return substr(hash('sha256', $value), 0, 7);
+    }
+
+    protected function parseDateOrdered($feedData, $fieldInfo): DateTime|string|null
+    {
         $value = $this->fetchSimpleValue($feedData, $fieldInfo);
 
-        $node = $fieldInfo['node'];
-        if($node == 'usedefault'){
-            return $value;
-        } else {
-            // @TODO: Check to see if customer exists, if not create them
-            return $value;
+        if ($fieldInfo) {
+            $node = $fieldInfo['node'];
+            if ($node === 'usedefault') {
+                return $value;
+            } else {
+                $dateValue = DateHelper::parseString($value, self::DATE_FORMAT);
+                if ($dateValue instanceof Carbon) {
+                    return $dateValue->toDateTime();
+                }
+            }
         }
-        
+
+        return null;
     }
 
-    /**
-     * @Random Generate UID For Order
-     */
-
-    public  function UUID()
-	{
-		return sprintf('%04x%04x-%04x-%04x-%04x-%04x%04x%04x',
-
-			// 32 bits for "time_low"
-			mt_rand(0, 0xffff), mt_rand(0, 0xffff),
-
-			// 16 bits for "time_mid"
-			mt_rand(0, 0xffff),
-
-			// 16 bits for "time_hi_and_version", four most significant bits holds version number 4
-			mt_rand(0, 0x0fff) | 0x4000,
-
-			// 16 bits, 8 bits for "clk_seq_hi_res", 8 bits for "clk_seq_low", two most significant bits holds zero and
-			// one for variant DCE1.1
-			mt_rand(0, 0x3fff) | 0x8000,
-
-			// 48 bits for "node"
-			mt_rand(0, 0xffff), mt_rand(0, 0xffff), mt_rand(0, 0xffff)
-
-		);
-	}
-
-    protected function parseUid($feedData, $fieldInfo): DateTime|bool|array|Carbon|string|null
-    {
-         $value = $this->fetchSimpleValue($feedData, $fieldInfo);
-         $values =  $this->UUID();
-         return $values;
-    }
-
-    protected function parseNumber($feedData, $fieldInfo): DateTime|bool|array|Carbon|string|null
-    {
-         $value = $this->fetchSimpleValue($feedData, $fieldInfo);
-         $values =  MD5( $value );
-         return $values;
-    }
-
-    protected function parseReference($feedData, $fieldInfo): DateTime|bool|array|Carbon|string|null
-    {
-         $value = $this->fetchSimpleValue($feedData, $fieldInfo);
-         $values =  substr( MD5( $value ), 0, 7);
-         return $values;
-    }
-
-    protected function parseDateOrdered($feedData, $fieldInfo): DateTime|bool|array|Carbon|string|null
-    {
-        $value = $this->fetchSimpleValue($feedData, $fieldInfo);
-         if( $fieldInfo ){
-             $node = $fieldInfo['node'];
-               if( $node == 'usedefault' ){
-                   return $value;
-               }else{
-                   $formatting="Y-m-d\\TH:";
-                   $dateValue = DateHelper::parseString($value, $formatting);
-                    if ($dateValue instanceof Carbon) {
-                        $dateValue = $dateValue->toDateTime();
-                        return $dateValue;
-                    }
-               }
-         }
-    }
-
-    protected function parseDateAuthorized($feedData, $fieldInfo): DateTime|bool|array|Carbon|string|null
-    {
-        $value = $this->fetchSimpleValue($feedData, $fieldInfo);
-         if( $fieldInfo ){
-             $node = $fieldInfo['node'];
-               if( $node == 'usedefault' ){
-                   return $value;
-               }else{
-                   $formatting="Y-m-d\\TH:";
-                   $dateValue = DateHelper::parseString($value, $formatting);
-                    if ($dateValue instanceof Carbon) {
-                        $dateValue = $dateValue->toDateTime();
-                        return $dateValue;
-                    }
-               }
-         }
-    }
-
-    protected function parseDatePaid($feedData, $fieldInfo): DateTime|bool|array|Carbon|string|null
+    protected function parseDateAuthorized($feedData, $fieldInfo): DateTime|string|null
     {
         $value = $this->fetchSimpleValue($feedData, $fieldInfo);
 
-         if( $fieldInfo ){
-             $node = $fieldInfo['node'];
-               if( $node == 'usedefault' ){
-                   return $value;
-               }else{
-                   $formatting="Y-m-d\\TH:";
-                   $dateValue = DateHelper::parseString($value, $formatting);
-                    if ($dateValue instanceof Carbon) {
-                        $dateValue = $dateValue->toDateTime();
-                        return $dateValue;
-                    }
-               }
-         }
+        if ($fieldInfo) {
+            $node = $fieldInfo['node'];
+            if ($node === 'usedefault') {
+                return $value;
+            } else {
+                $dateValue = DateHelper::parseString($value, self::DATE_FORMAT);
+                if ($dateValue instanceof Carbon) {
+                    return $dateValue->toDateTime();
+                }
+            }
+        }
+
+        return null;
     }
 
-    protected function parseGatewayId($feedData, $fieldInfo): DateTime|bool|array|Carbon|string|null
+    protected function parseDatePaid($feedData, $fieldInfo): DateTime|string|null
     {
+        $value = $this->fetchSimpleValue($feedData, $fieldInfo);
 
-         $value = $this->fetchSimpleValue($feedData, $fieldInfo);
-         $gaetway = Commerce::getInstance()->getGateways()->getGatewayByHandle($value);
-         if( isset($gaetway->id) ){
-             return $gaetway->id;
-         }
-        return $value;
+        if ($fieldInfo) {
+            $node = $fieldInfo['node'];
+            if ($node === 'usedefault') {
+                return $value;
+            } else {
+                $dateValue = DateHelper::parseString($value, self::DATE_FORMAT);
+                if ($dateValue instanceof Carbon) {
+                    return $dateValue->toDateTime();
+                }
+            }
+        }
+
+        return null;
+    }
+
+    protected function parseGatewayId($feedData, $fieldInfo): int|null
+    {
+        $value = $this->fetchSimpleValue($feedData, $fieldInfo);
+
+        if (array_key_exists($value, $this->_gatewayCache)) {
+            return $this->_gatewayCache[$value];
+        }
+
+        $gateway = Commerce::getInstance()->getGateways()->getGatewayByHandle($value);
+        $result = $gateway?->id;
+        $this->_gatewayCache[$value] = $result;
+        return $result;
     }
 
 }

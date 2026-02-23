@@ -1,11 +1,11 @@
 {
   "name": "bymayo/order-importer",
   "description": "Imports Orders via Feed Me Plugin",
-  "version": "1.0.0",
+  "version": "1.0.5",
   "type": "craft-plugin",
   "license": "proprietary",
   "support": {
-    "email": "jason@bymayo.co.u",
+    "email": "jason@bymayo.co.uk",
     "issues": "https://github.com/bymayo/craft-order-importer/issues?state=open",
     "source": "https://github.com/bymayo/craft-order-importer",
     "docs": "https://github.com/bymayo/craft-order-importer",
